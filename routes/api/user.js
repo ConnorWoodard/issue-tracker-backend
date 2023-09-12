@@ -26,29 +26,116 @@ router.get("/:userId", (req,res) => {
     const userId = req.params.userId;
     //FIXME: Get the user from usersArray and send response as JSON
     const user = usersArray.find(user => user._id == userId);
-    if(user){
-      res.status(200).send(user);
+    if (user) {
+      res.status(200).json(user);
     } else {
-      res.status(404).send({message: `User ${userId} not found`});
+      res.status(404).json({message: `User ${userId} not found`});
     }
 });
 
 router.post('/register', (req,res) => {
     //FIXME: Register new user and send response as JSON
-    const newUser = req.body;
-    res.status(400).type('text/plain').send()
+    const { email, password, fullName, givenName, familyName, role } = req.body;
+    const errors = [];
+
+    if (!email) {
+        errors.push('Email is missing.');
+    }
+    if (!password) {
+        errors.push('Password is missing.');
+    }
+    if (!fullName) {
+        errors.push('Full name is missing.');
+    }
+    if (!givenName) {
+        errors.push('Given name is missing.');
+    }
+    if (!familyName) {
+        errors.push('Family name is missing.');
+    }
+    if (!role) {
+        errors.push('Role is missing.');
+    }
+
+    if(errors.length > 0){
+        res.status(400).type('text/plain').json({ errors });
+    } else {
+
+        const newUserId = nanoid();
+        const currentDate = new Date().toDateString();
+        const newUser = {
+            email,
+            password,
+            fullName,
+            givenName,
+            familyName,
+            role,
+            _id: newUserId,
+            creationDate: currentDate,
+        };
+        usersArray.push(newUser);
+        res.status(200).type('text/plain').json({message: `New user registered!`});
+    
+
+    const existingUser = usersArray.find(user => user.email === email);
+    if (existingUser) {
+        res.status(400).type('text/plain').json({error: 'Email already registered.'});
+    }
+}
 });
 
 router.post('/login', (req,res) => {
     //FIXME: check user's email and password as a send response as JSON
+    const { email, password} = req.body;
+
+    if(!email || !password){
+        res.status(400).type('text/plain').json({message: 'Please input your login credentials'});
+    }
+
+    const existingUser = usersArray.find(user => user.email === email);
+    if (existingUser && existingUser.password === password){
+        res.status(200).type('text/plain').json({message: `Welcome back ${existingUser.fullName}.`});
+    } else {
+        res.status(404).type('text/plain').json({message: 'Invalid login credentials'});
+    }
 });
 
-router.put(':/userId', (req,res) => {
+router.put('/:userId', (req,res) => {
     //FIXME:  update existing user and send response as JSON
+    const userId = req.params.userId;
+    const currentId = usersArray.find(user => user._id == userId);
+
+    const updatedUser = req.body;
+
+    if(currentId){
+        for(const key in updatedUser){
+            if(currentId[key] != updatedUser[key]){
+                currentId[key] = updatedUser[key];
+            }
+        }
+
+        const index = usersArray.findIndex(user => user._id == userId);
+        if(index != -1){
+            usersArray[index] = currentId;
+            currentId.lastUpdated = new Date().toDateString();
+        }
+        res.status(200).type('text/plain').json({message: 'User updated!'});
+    } else {
+        res.status(404).type('text/plain').json({message: `User ${userId} not found.`});
+    }
 });
 
-router.delete(':/userId', (req,res) => {
+router.delete('/:userId', (req,res) => {
     //FIXME: delete user and send response as JSON
+    const userId = req.params.userId;
+
+    const index = usersArray.findIndex(user => user._id == userId);
+    if(index != -1){
+        usersArray.splice(index,1);
+        res.status(200).type('text/plain').json({message: `User deleted!`});
+    } else {
+        res.status(404).type('text/plain').json({message: `User ${userId} not found.`});
+    }
 });
 
 
