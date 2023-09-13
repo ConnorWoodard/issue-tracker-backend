@@ -57,8 +57,6 @@ router.post('/register', (req,res) => {
         errors.push('Role is missing.');
     }
 
-    
-
     if(errors.length > 0){
         res.status(400).type('text/plain').json({ errors });
     } else {
