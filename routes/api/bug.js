@@ -65,24 +65,24 @@ router.post('/new', (req,res) => {
 router.put('/:bugId', (req,res) => {
     //FIXME: update existing bug and send response as JSON
     const bugId = req.params.bugId;
-    const currentId = bugsArray.find(bug => bug._id == bugId);
+    const currentBug = bugsArray.find(bug => bug._id == bugId);
 
     const updatedBug = req.body;
 
-    if(currentId){
+    if(currentBug){
         for(const key in updatedBug){
-            if(currentId[key] != updatedBug[key]){
-                currentId[key] = updatedBug[key];
+            if(currentBug[key] != updatedBug[key]){
+                currentBug[key] = updatedBug[key];
             }
         }
         const index = bugsArray.findIndex(bug => bug._id == bugId);
         if(index != -1){
-            bugsArray[index] = currentId;
-            currentId.lastUpdated = new Date().toDateString();
+            bugsArray[index] = currentBug;
+            currentBug.lastUpdated = new Date().toDateString();
         }
         res.status(200).type('text/plain').json({message: 'Bug updated!'});
     } else {
-        res.status(404).type('text/plain').json({message: `User ${bugId} not found.`});
+        res.status(404).type('text/plain').json({message: `Bug ${bugId} not found.`});
     }
 });
 

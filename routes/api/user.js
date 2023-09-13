@@ -104,21 +104,21 @@ router.post('/login', (req,res) => {
 router.put('/:userId', (req,res) => {
     //FIXME:  update existing user and send response as JSON
     const userId = req.params.userId;
-    const currentId = usersArray.find(user => user._id == userId);
+    const currentUser = usersArray.find(user => user._id == userId);
 
     const updatedUser = req.body;
 
-    if(currentId){
+    if(currentUser){
         for(const key in updatedUser){
-            if(currentId[key] != updatedUser[key]){
-                currentId[key] = updatedUser[key];
+            if(currentUser[key] != updatedUser[key]){
+                currentUser[key] = updatedUser[key];
             }
         }
 
         const index = usersArray.findIndex(user => user._id == userId);
         if(index != -1){
-            usersArray[index] = currentId;
-            currentId.lastUpdated = new Date().toDateString();
+            usersArray[index] = currentUser;
+            currentUser.lastUpdated = new Date().toDateString();
         }
         res.status(200).type('text/plain').json({message: 'User updated!'});
     } else {
