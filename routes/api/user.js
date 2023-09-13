@@ -57,8 +57,14 @@ router.post('/register', (req,res) => {
         errors.push('Role is missing.');
     }
 
+    
+
     if(errors.length > 0){
         res.status(400).type('text/plain').json({ errors });
+    } else {
+        const existingUser = usersArray.find(user => user.email === email);
+    if (existingUser) {
+        res.status(400).type('text/plain').json({error: 'Email already registered.'});
     } else {
 
         const newUserId = nanoid();
@@ -75,11 +81,6 @@ router.post('/register', (req,res) => {
         };
         usersArray.push(newUser);
         res.status(200).type('text/plain').json({message: `New user registered!`});
-    
-
-    const existingUser = usersArray.find(user => user.email === email);
-    if (existingUser) {
-        res.status(400).type('text/plain').json({error: 'Email already registered.'});
     }
 }
 });
