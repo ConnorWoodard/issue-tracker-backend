@@ -9,6 +9,7 @@ import express from 'express';
 import { UserRouter } from './routes/api/user.js';
 import { BugRouter } from './routes/api/bug.js';
 
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 

@@ -5,151 +5,204 @@ import debug from 'debug';
 const debugBug = debug('app:BugRouter');
 
 import { nanoid } from 'nanoid';
+import { getBugs, connect, getBugById, newBug, updateBug, classifyBug, assignBugToUser, getUserById, newId, closeBug } from '../../database.js';
 
 router.use(express.urlencoded({extended:false}));
 
-const bugsArray = [{"title":"Button doesn't work","description":"Clicking the link doesnt take me anywhere. Even after refreshing.","stepsToReproduce":"I log into my account and try to click on the link. And it just doesnt work.","_id": 1},
-{"title":"Sent to wrong site","description":"When I click on the about link, it takes me back to the homepage.","stepsToReproduce":"I log into my account and browse the home page for a bit. Then I click on the about link but it refreshes to the main page.", "_id":2},
-{"title":"Keeps crashing","description":"I can explore the site for 10 minutes but then the page just crashes","stepsToReproduce":"Login to account and browse for a few minutes. MAybe have other tabs open","_id":3},
-{"title":"Error code 404","description":"Whenever I try to log in, an error 404 message opens saying that it cant find my account","stepsToReproduce":"Login to this persons account, see what is going on","_id":4}]
+// const bugsArray = [{"title":"Button doesn't work","description":"Clicking the link doesnt take me anywhere. Even after refreshing.","stepsToReproduce":"I log into my account and try to click on the link. And it just doesnt work.","_id": 1},
+// {"title":"Sent to wrong site","description":"When I click on the about link, it takes me back to the homepage.","stepsToReproduce":"I log into my account and browse the home page for a bit. Then I click on the about link but it refreshes to the main page.", "_id":2},
+// {"title":"Keeps crashing","description":"I can explore the site for 10 minutes but then the page just crashes","stepsToReproduce":"Login to account and browse for a few minutes. MAybe have other tabs open","_id":3},
+// {"title":"Error code 404","description":"Whenever I try to log in, an error 404 message opens saying that it cant find my account","stepsToReproduce":"Login to this persons account, see what is going on","_id":4}]
 
-router.get('/list', (req,res) => {
-    debugBug('bug list route hit');
-    res.status(200).json(bugsArray);
+router.get('/list', async (req,res) => {
+    debugBug('Getting all the bugs');
+    try{
+        const db = await connect();
+        const bugs = await getBugs();
+        res.status(200).json(bugs);
+    } catch(err) {
+        res.status(500).json({error: err});
+    }
 });
 
-router.get('/:bugId', (req,res) => {
+router.get("/:bugId", async (req,res) => {
+    //Reads the bugId from the URL and stores in a variable
     const bugId = req.params.bugId;
-    //FIXME: get bug from bugsArray and send response as JSON
-    const bug = bugsArray.find(bug => bug._id == bugId);
-    if(bug){
-        res.status(200).json(bug);
-    } else {
-        res.status(404).type('text/plain').json({message: `Bug ${bugId} not found.`});
+    debugBug(bugId);
+    
+    try{
+        const bug = await getBugById(bugId);
+        debugBug(`The bug is: ${bug.title}`)
+        if (bug){
+            res.status(200).json(bug);
+        } else {
+            res.status(404).json({error: `Bug ${bugId} not found`});
+        }
+    } catch(err) {
+        res.status(500).json({error: err});
     }
 });
 
-router.post('/new', (req,res) => {
-    //FIXME: create new bug and send response as JSON
-    const {title, description, stepsToReproduce} = req.body;
-    const errors = [];
+router.post('/new', async (req, res) => {
+    const { title, description, stepsToReproduce } = req.body;
 
-    if(!title){
-        errors.push('Title is missing');
-    }
-    if(!description){
-        errors.push('Description is missing');
-    }
-    if(!stepsToReproduce){
-        errors.push('Steps to reproduce is missing');
-    }
+    const requiredFields = ['title', 'description', 'stepsToReproduce'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
 
-    if(errors.length > 0){
-        res.status(400).type('text/plain').json({ errors });
-    }else{
+    try {
+        // If any required field is missing, respond with a 400 status and a JSON error object
+        if (missingFields.length > 0) {
+            res.status(400).json({ error: `Required fields missing: ${missingFields.join(', ')}.` });
+            return; // Return to avoid executing the code below
+        }
 
-    const newBugId = nanoid();
-    const currentDate = new Date().toDateString();
-    const newBug = {
-        title,
-        description,
-        stepsToReproduce,
-        _id: newBugId,
-        creationDate: currentDate,
-    };
-    bugsArray.push(newBug);
-    res.status(200).type('text/plain').json({message: 'New bug reported'});
-}
+        const bug = {
+            title,
+            description,
+            stepsToReproduce,
+            creationDate: new Date().toLocaleString('en-US'), // Set creation date to current date and time
+        };
+
+        const dbResult = await newBug(bug);
+
+        if (dbResult.insertedId) {
+            res.status(200).json({ message: "New bug reported!", bugId: dbResult.insertedId });
+        } else {
+            res.status(500).json({ error: "Failed to insert bug into the database" });
+        }
+    } catch (err) {
+        // Handle database errors and promise rejections
+        res.status(500).json({ error: err.message });
+    }
 });
 
-router.put('/:bugId', (req,res) => {
-    //FIXME: update existing bug and send response as JSON
+
+router.put('/:bugId', async (req, res) => {
+    //FIXME:  update existing user and send response as JSON
     const bugId = req.params.bugId;
-    const currentBug = bugsArray.find(bug => bug._id == bugId);
-
     const updatedBug = req.body;
 
-    if(currentBug){
-        for(const key in updatedBug){
-            if(currentBug[key] != updatedBug[key]){
-                currentBug[key] = updatedBug[key];
-            }
-        }
-        const index = bugsArray.findIndex(bug => bug._id == bugId);
-        if(index != -1){
-            bugsArray[index] = currentBug;
-            currentBug.lastUpdated = new Date().toDateString();
-        }
-        res.status(200).type('text/plain').json({message: 'Bug updated!'});
-    } else {
-        res.status(404).type('text/plain').json({message: `Bug ${bugId} not found.`});
-    }
-});
+    try {
+        updatedBug.lastUpdated = new Date().toLocaleString('en-US');
+        const updateResult = await updateBug(bugId, updatedBug);
 
-router.put('/:bugId/classify', (req,res) => {
-    //FIXME: Classify bug and send response as JSON
-    const bugId = req.params.bugId;
-    const { classification } = req.body;
-
-    const bugToUpdate = bugsArray.find(bug => bug._id == bugId);
-
-    if(!bugToUpdate){
-        res.status(404).type('text/plain').json(`Bug ${bugId} not found.`);
-    }
-    else if(!classification){
-        res.status(400).type('text/plain').json('Classification is missing or invalid.');
-    } else {
-        bugToUpdate.classification = classification;
-        bugToUpdate.classifiedOn = new Date().toDateString();
-        bugToUpdate.lastUpdated = new Date().toDateString();
-
-        res.status(200).type('text/plain').json({message: 'Bug classified'});
-    }
-});
-
-router.put('/:bugId/assign', (req,res) => {
-    //FIXME: assign bug to a user and send response as JSON
-    const bugId = req.params.bugId;
-    const { assignedToUserId, assignedToUserName} = req.body;
-
-    const bugToAssign = bugsArray.find(bug => bug._id == bugId);
-
-    if(!bugToAssign){
-        res.status(404).type('text/plain').json(`Bug ${bugId} not found.`);
-    }
-    else if(!assignedToUserId || !assignedToUserName){
-        res.status(400).type('text/plain').json('Assigned user data is missing or invalid.');
-    } else {
-        bugToAssign.assignedToUserId = assignedToUserId;
-        bugToAssign.assignedToUserName = assignedToUserName;
-        bugToAssign.assignedOn = new Date().toDateString();
-        bugToAssign.lastUpdated = new Date().toDateString();
-
-        res.status(200).type('text/plain').json({message: `Bug assigned!`});
-    }
-});
-
-router.put('/:bugId/close', (req,res) => {
-    //FIXME: close bug and send response as JSON
-    const bugId = req.params.bugId;
-    const { closed } = req.body;
-
-    const bugToClose = bugsArray.find(bug => bug._id == bugId);
-
-    if (!bugToClose) {
-        res.status(404).type('text/plain').json(`Bug ${bugId} not found.`);
-    } else if (closed !== 'true' && closed !== 'false') {
-        return res.status(400).type('text/plain').send('The "closed" field is missing or invalid.');
-    } else {
-        const isClosed = closed === 'true';
-        bugToClose.closed = isClosed;
-        bugToClose.closedOn = isClosed ? new Date().toDateString() : null;
-        bugToClose.lastUpdated = new Date().toDateString();
-        if(closed === 'true'){
-            res.status(200).type('text/plain').json('Bug closed!');
+        if (updateResult.modifiedCount === 1) {
+            res.status(200).json({ message: `Bug ${bugId} updated`, bugId });
+            debugBug(bugId);
         } else {
-            res.status(200).type('text/plain').json('Bug is open');
+            res.status(400).json({ message: `Bug ${bugId} not updated` });
         }
+    } catch (err) {
+        if (err.message === `Bug ${bugId} not found`) {
+            res.status(404).json({ error: `Bug ${bugId} not found` });
+        } else {
+            res.status(404).json({ error: err.message });
+        }
+    }
+});
+
+// Define the route for classifying a bug
+router.put('/:bugId/classify', async (req, res) => {
+    const bugId = req.params.bugId;
+    const classifiedBug = req.body;
+
+    try {
+        if (!classifiedBug.classification) {
+            res.status(400).json({ error: "Classification is missing" });
+            return;
+        }
+
+        classifiedBug.classifiedOn = new Date().toLocaleString('en-US');
+        classifiedBug.lastUpdated = new Date().toLocaleString('en-US');
+        debugBug(bugId, classifiedBug.classification)
+        const updateResult = await classifyBug(bugId, classifiedBug);
+
+        if (updateResult.modifiedCount === 1) {
+            res.status(200).json({ message: `Bug ${bugId} classified!`, bugId });
+        } else {
+            res.status(400).json({ message: `Bug ${bugId} not classified` });
+        }
+    } catch (err) {
+        if (err.message === `Bug ${bugId} not found.`) {
+            res.status(404).json({ error: `Bug ${bugId} not found.` });
+        } else {
+            res.status(500).json({ error: err.message });
+        }
+    }
+});
+
+
+router.put('/:bugId/assign', async (req, res) => {
+    const bugId = req.params.bugId;
+    const { assignedToUserId } = req.body; // Extract assignedToUserId from the request body
+
+    try {
+        // Check if assignedToUserId is missing or invalid
+        if (!assignedToUserId) {
+            res.status(400).json({ error: "Missing User Id" });
+            return;
+        }
+
+        // Call getUserById to get user information
+        const userInfo = await getUserById(assignedToUserId);
+
+        if (!userInfo) {
+            res.status(404).json({ error: `User ${assignedToUserId} not found.` });
+            return;
+        }
+
+        const db = await connect();
+
+        // Use collection.findOne() to search for the bug by ID
+        const existingBug = await db.collection("Bug").findOne({ _id: newId(bugId) });
+
+        if (!existingBug) {
+            res.status(404).json({ error: `Bug ${bugId} not found.` });
+            return;
+        }
+
+        // Create the assignedBug object with assignedToUserId and other properties
+        const assignedBug = {
+            assignedToUserId,
+            assignedToUserName: userInfo.fullName, // Use userInfo.userName from the database
+            assignedOn: new Date().toLocaleString('en-US'), // Set assignedOn to the current date and time
+            lastUpdated: new Date().toLocaleString('en-US'), // Set lastUpdated to the current date and time
+        };
+
+        // Use the assignBugToUser function to update the bug's fields
+        const result = await assignBugToUser(bugId, assignedBug);
+        debugBug(`Assigned to ${userInfo.fullName}`);
+        if (result.modifiedCount === 1) {
+            res.status(200).json({ message: `Bug ${bugId} assigned!`, bugId });
+        } else {
+            res.status(400).json({ message: `Bug ${bugId} not assigned` });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.put('/:bugId/close', async (req, res) => {
+    const bugId = req.params.bugId;
+    const closed = req.body.closed;
+    debugBug(closed);
+    try {
+        // Check if 'closed' is missing or invalid
+        if (closed === undefined || (closed !== "true" && closed !== "false")) {
+            res.status(400).json({ error: "Invalid or missing 'closed' data." });
+            return;
+        }
+
+        // Convert the 'closed' string to a boolean
+        const isClosed = closed === "true";
+
+        const db = await connect();
+
+        const result = await closeBug(bugId, isClosed);
+
+        res.status(200).json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

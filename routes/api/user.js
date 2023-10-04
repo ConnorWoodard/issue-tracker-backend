@@ -1,139 +1,150 @@
 import express from 'express';
-
 const router = express.Router();
 
 import debug from 'debug';
 const debugUser = debug('app:UserRouter');
 
+import bcrypt from 'bcrypt';
+
 import { nanoid } from 'nanoid';
+import { getUsers, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser } from '../../database.js';
 
 router.use(express.urlencoded({extended:false}));
 
 //FIXME: use this array to store user data in for now
 //we will replace this with a database in a later assignment
-const usersArray =[{"email":"tkettoe0@hc360.com","password":"gO4+K9#X","fullName":"Tawsha Kettoe","firstName":"Tawsha","lastName":"Kettoe","role":"Safety Technician II","_id":1},
-{"email":"gsyvret1@comcast.net","password":"mH2$oL","fullName":"Gwenni Syvret","firstName":"Gwenni","lastName":"Syvret","role":"Safety Technician II", "_id":2},
-{"email":"grapport2@angelfire.com","password":"vS7*6`","fullName":"Guy Rapport","firstName":"Guy","lastName":"Rapport","role":"Geological Engineer", "_id":3},
-{"email":"syeskin3@sina.com.cn","password":"jS8/o","fullName":"Siegfried Yeskin","firstName":"Siegfried","lastName":"Yeskin","role":"Senior Quality Engineer", "_id":4}];
+// const usersArray =[{"email":"tkettoe0@hc360.com","password":"gO4+K9#X","fullName":"Tawsha Kettoe","firstName":"Tawsha","lastName":"Kettoe","role":"Safety Technician II","_id":1},
+// {"email":"gsyvret1@comcast.net","password":"mH2$oL","fullName":"Gwenni Syvret","firstName":"Gwenni","lastName":"Syvret","role":"Safety Technician II", "_id":2},
+// {"email":"grapport2@angelfire.com","password":"vS7*6`","fullName":"Guy Rapport","firstName":"Guy","lastName":"Rapport","role":"Geological Engineer", "_id":3},
+// {"email":"syeskin3@sina.com.cn","password":"jS8/o","fullName":"Siegfried Yeskin","firstName":"Siegfried","lastName":"Yeskin","role":"Senior Quality Engineer", "_id":4}];
 
-router.get('/list', (req,res) => {
+router.get('/list', async (req,res) => {
     debugUser('Getting all the users');
-    res.status(200).json(usersArray);
+    try{
+        const db = await connect();
+        const users = await getUsers();
+        res.status(200).json(users);
+    } catch(err) {
+        res.status(500).json({error: err});
+    }
 });
 
-router.get("/:userId", (req,res) => {
+router.get("/:userId", async (req,res) => {
     //Reads the userId from the URL and stores in a variable
     const userId = req.params.userId;
+    debugUser(userId);
     //FIXME: Get the user from usersArray and send response as JSON
-    const user = usersArray.find(user => user._id == userId);
-    if (user) {
-      res.status(200).json(user);
-    } else {
-      res.status(404).json({message: `User ${userId} not found`});
+    try{
+        const user = await getUserById(userId);
+        debugUser(`The user is: ${user.fullName}`)
+        if (user){
+            res.status(200).json(user);
+        } else {
+            res.status(404).json({error: `User ${userId} not found`});
+        }
+    } catch(err) {
+        res.status(500).json({error: err});
     }
 });
 
-router.post('/register', (req,res) => {
-    //FIXME: Register new user and send response as JSON
-    const { email, password, fullName, givenName, familyName, role } = req.body;
-    const errors = [];
+router.post('/register', async (req,res) => {
+    const user = req.body;
 
-    if (!email) {
-        errors.push('Email is missing.');
-    }
-    if (!password) {
-        errors.push('Password is missing.');
-    }
-    if (!fullName) {
-        errors.push('Full name is missing.');
-    }
-    if (!givenName) {
-        errors.push('Given name is missing.');
-    }
-    if (!familyName) {
-        errors.push('Family name is missing.');
-    }
-    if (!role) {
-        errors.push('Role is missing.');
+    // Check if the email is already registered
+    const isEmailRegistered = await checkEmailExists(user.email);
+    if (isEmailRegistered) {
+        res.status(400).json({ error: 'Email already registered.' });
+        return; // Exit the registration process
     }
 
-    if(errors.length > 0){
-        res.status(400).type('text/plain').json({ errors });
-    } else {
-        const existingUser = usersArray.find(user => user.email === email);
-    if (existingUser) {
-        res.status(400).type('text/plain').json({error: 'Email already registered.'});
-    } else {
+    // Check if all required fields are present
+    const requiredFields = ['email', 'password', 'fullName', 'givenName', 'familyName'];
+    const missingFields = requiredFields.filter(field => !user[field]);
 
-        const newUserId = nanoid();
-        const currentDate = new Date().toDateString();
-        const newUser = {
-            email,
-            password,
-            fullName,
-            givenName,
-            familyName,
-            role,
-            _id: newUserId,
-            creationDate: currentDate,
-        };
-        usersArray.push(newUser);
-        res.status(200).type('text/plain').json({message: `New user registered!`});
+    if (missingFields.length > 0) {
+        res.status(400).json({ error: `Required fields missing: ${missingFields.join(', ')}.` });
+        return; // Exit the registration process
     }
-}
+
+    // Ensure "role" is an array of strings
+    user.role = Array.isArray(user.role) ? user.role : [user.role];
+
+    // Insert the new user into the database
+    try {
+        const hashedPassword = await bcrypt.hash(user.password, 10);
+        user.password = hashedPassword;
+        user.createdAt = new Date().toLocaleString('en-US'); // Set the creation date
+        const result = await registerUser(user);
+        res.status(200).json({ message: 'New user registered!', userId: result.insertedId });
+    } catch (err) {
+        res.status(500).json({error: err.stack});
+    }
+    debugUser(user);
 });
 
-router.post('/login', (req,res) => {
-    //FIXME: check user's email and password as a send response as JSON
-    const { email, password} = req.body;
+router.post('/login',async (req,res) => {
+    const user = req.body;
 
-    if(!email || !password){
-        res.status(400).type('text/plain').json({message: 'Please input your login credentials'});
+    if (!user.email || !user.password) {
+        res.status(400).json({ error: 'Please enter your login credentials.' });
+        return;
     }
-
-    const existingUser = usersArray.find(user => user.email === email);
-    if (existingUser && existingUser.password === password){
-        res.status(200).type('text/plain').json({message: `Welcome back ${existingUser.fullName}.`});
-    } else {
-        res.status(404).type('text/plain').json({message: 'Invalid login credentials'});
+    debugUser(user);
+    try {
+        const resultUser = await loginUser(user);
+  
+        if (resultUser && await bcrypt.compare(user.password, resultUser.password)) {
+            res.status(200).json({ message: 'Welcome back!', userId: resultUser._id });
+        } else {
+            res.status(400).json({ error: 'Invalid login credentials provided. Please try again.' });
+        }
+    } catch (err) {
+        res.status(500).json({error: err.stack});
     }
 });
 
-router.put('/:userId', (req,res) => {
+router.put('/:userId', async (req, res) => {
     //FIXME:  update existing user and send response as JSON
     const userId = req.params.userId;
-    const currentUser = usersArray.find(user => user._id == userId);
-
     const updatedUser = req.body;
 
-    if(currentUser){
-        for(const key in updatedUser){
-            if(currentUser[key] != updatedUser[key]){
-                currentUser[key] = updatedUser[key];
-            }
+    try {
+        if (updatedUser.password) {
+            updatedUser.password = await bcrypt.hash(updatedUser.password, 10);
         }
+        updatedUser.lastUpdated = new Date().toLocaleString('en-US');
+        const updateResult = await updateUser(userId, updatedUser);
 
-        const index = usersArray.findIndex(user => user._id == userId);
-        if(index != -1){
-            usersArray[index] = currentUser;
-            currentUser.lastUpdated = new Date().toDateString();
+        if (updateResult.modifiedCount === 1) {
+            res.status(200).json({ message: `User ${userId} updated`, userId });
+            debugUser(userId);
+        } else {
+            res.status(400).json({ message: `User ${userId} not updated` });
         }
-        res.status(200).type('text/plain').json({message: 'User updated!'});
-    } else {
-        res.status(404).type('text/plain').json({message: `User ${userId} not found.`});
+    } catch (err) {
+        if (err.message === `User ${userId} not found`) {
+            res.status(404).json({ error: `User ${userId} not found` });
+        } else {
+            res.status(404).json({ error: err.message });
+        }
     }
 });
 
-router.delete('/:userId', (req,res) => {
-    //FIXME: delete user and send response as JSON
+router.delete('/:userId', async (req, res) => {
     const userId = req.params.userId;
-
-    const index = usersArray.findIndex(user => user._id == userId);
-    if(index != -1){
-        usersArray.splice(index,1);
-        res.status(200).type('text/plain').json({message: `User deleted!`});
-    } else {
-        res.status(404).type('text/plain').json({message: `User ${userId} not found.`});
+    debugUser(userId);
+    try {
+        const dbResult = await deleteUser(userId);
+        
+        if (dbResult.deletedCount == 1) {
+            res.status(200).json({ message: `User ${userId} deleted!`, userId });
+        } else {
+            // This block should handle the case where the user doesn't exist
+            res.status(404).json({ error: `User ${userId} not deleted` });
+        }
+    } catch (err) {
+        // Handle other errors, such as database connection errors
+        res.status(404).json({ error: err.message });
     }
 });
 
