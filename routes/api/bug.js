@@ -4,11 +4,38 @@ const router = express.Router();
 import debug from 'debug';
 const debugBug = debug('app:BugRouter');
 
+import Joi from 'joi';
+
 import { nanoid } from 'nanoid';
 import { getBugs, connect, getBugById, newBug, updateBug, classifyBug, assignBugToUser, getUserById, newId, closeBug } from '../../database.js';
+import { validBody } from '../../middleware/validBody.js';
+import { validId } from '../../middleware/validId.js';
 
 router.use(express.urlencoded({extended:false}));
 
+const newBugSchema = Joi.object({
+    title: Joi.string().min(1).max(50).required(),
+    description: Joi.string().min(10).required(),
+    stepsToReproduce: Joi.string().min(10).required(),
+});
+
+const updateBugSchema = Joi.object({
+    title: Joi.string().min(1).max(50),
+    description: Joi.string().min(10),
+    stepsToReproduce: Joi.string().min(10),
+});
+
+const classifyBugSchema = Joi.object({
+    classification: Joi.string().valid('approved', 'unapproved', 'duplicate').required()
+});
+
+const assignBugSchema = Joi.object({
+    assignedToUserId: Joi.string().required(),
+});
+
+const closeBugSchema = Joi.object({
+    closed: Joi.string().valid('true', 'false').required()
+})
 // const bugsArray = [{"title":"Button doesn't work","description":"Clicking the link doesnt take me anywhere. Even after refreshing.","stepsToReproduce":"I log into my account and try to click on the link. And it just doesnt work.","_id": 1},
 // {"title":"Sent to wrong site","description":"When I click on the about link, it takes me back to the homepage.","stepsToReproduce":"I log into my account and browse the home page for a bit. Then I click on the about link but it refreshes to the main page.", "_id":2},
 // {"title":"Keeps crashing","description":"I can explore the site for 10 minutes but then the page just crashes","stepsToReproduce":"Login to account and browse for a few minutes. MAybe have other tabs open","_id":3},
@@ -25,36 +52,32 @@ router.get('/list', async (req,res) => {
     }
 });
 
-router.get("/:bugId", async (req,res) => {
+router.get("/:bugId", validId('bugId'), async (req,res) => {
     //Reads the bugId from the URL and stores in a variable
-    const bugId = req.params.bugId;
+    const bugId = req.bugId;
     debugBug(bugId);
     
     try{
         const bug = await getBugById(bugId);
         debugBug(`The bug is: ${bug.title}`)
-        if (bug){
-            res.status(200).json(bug);
-        } else {
-            res.status(404).json({error: `Bug ${bugId} not found`});
-        }
+        res.status(200).json(bug);
     } catch(err) {
         res.status(500).json({error: err});
     }
 });
 
-router.post('/new', async (req, res) => {
+router.post('/new', validBody(newBugSchema), async (req, res) => {
     const { title, description, stepsToReproduce } = req.body;
 
-    const requiredFields = ['title', 'description', 'stepsToReproduce'];
-    const missingFields = requiredFields.filter(field => !req.body[field]);
+    // const requiredFields = ['title', 'description', 'stepsToReproduce'];
+    // const missingFields = requiredFields.filter(field => !req.body[field]);
 
     try {
         // If any required field is missing, respond with a 400 status and a JSON error object
-        if (missingFields.length > 0) {
-            res.status(400).json({ error: `Required fields missing: ${missingFields.join(', ')}.` });
-            return; // Return to avoid executing the code below
-        }
+        // if (missingFields.length > 0) {
+        //     res.status(400).json({ error: `Required fields missing: ${missingFields.join(', ')}.` });
+        //     return; // Return to avoid executing the code below
+        // }
 
         const bug = {
             title,
@@ -62,14 +85,9 @@ router.post('/new', async (req, res) => {
             stepsToReproduce,
             creationDate: new Date().toLocaleString('en-US'), // Set creation date to current date and time
         };
-
+        debugBug(bug);
         const dbResult = await newBug(bug);
-
-        if (dbResult.insertedId) {
-            res.status(200).json({ message: "New bug reported!", bugId: dbResult.insertedId });
-        } else {
-            res.status(500).json({ error: "Failed to insert bug into the database" });
-        }
+        res.status(200).json({ message: "New bug reported!", bugId: dbResult.insertedId });
     } catch (err) {
         // Handle database errors and promise rejections
         res.status(500).json({ error: err.message });
@@ -77,9 +95,9 @@ router.post('/new', async (req, res) => {
 });
 
 
-router.put('/:bugId', async (req, res) => {
+router.put('/:bugId', validId('bugId'), validBody(updateBugSchema), async (req, res) => {
     //FIXME:  update existing user and send response as JSON
-    const bugId = req.params.bugId;
+    const bugId = req.bugId;
     const updatedBug = req.body;
 
     try {
@@ -93,17 +111,13 @@ router.put('/:bugId', async (req, res) => {
             res.status(400).json({ message: `Bug ${bugId} not updated` });
         }
     } catch (err) {
-        if (err.message === `Bug ${bugId} not found`) {
-            res.status(404).json({ error: `Bug ${bugId} not found` });
-        } else {
-            res.status(404).json({ error: err.message });
-        }
+        res.status(404).json({ error: err.message });
     }
 });
 
 // Define the route for classifying a bug
-router.put('/:bugId/classify', async (req, res) => {
-    const bugId = req.params.bugId;
+router.put('/:bugId/classify', validId('bugId'), validBody(classifyBugSchema), async (req, res) => {
+    const bugId = req.bugId;
     const classifiedBug = req.body;
 
     try {
@@ -132,8 +146,8 @@ router.put('/:bugId/classify', async (req, res) => {
 });
 
 
-router.put('/:bugId/assign', async (req, res) => {
-    const bugId = req.params.bugId;
+router.put('/:bugId/assign',validId('bugId'), validBody(assignBugSchema), async (req, res) => {
+    const bugId = req.bugId;
     const { assignedToUserId } = req.body; // Extract assignedToUserId from the request body
 
     try {
@@ -182,7 +196,7 @@ router.put('/:bugId/assign', async (req, res) => {
     }
 });
 
-router.put('/:bugId/close', async (req, res) => {
+router.put('/:bugId/close',validId('bugId'), async (req, res) => {
     const bugId = req.params.bugId;
     const closed = req.body.closed;
     debugBug(closed);

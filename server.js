@@ -16,6 +16,7 @@ const __dirname = path.dirname(__filename);
 //create our web server
 const app = express();
 
+app.use(express.static('public'));
 app.use(express.urlencoded({extended: true}));
 app.use('/api/user', UserRouter);
 app.use('/api/bug', BugRouter);

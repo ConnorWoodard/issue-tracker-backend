@@ -5,12 +5,36 @@ import debug from 'debug';
 const debugUser = debug('app:UserRouter');
 
 import bcrypt from 'bcrypt';
+import Joi from 'joi';
 
 import { nanoid } from 'nanoid';
 import { getUsers, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser } from '../../database.js';
+import { validBody } from '../../middleware/validBody.js';
+import { validId } from '../../middleware/validId.js';
 
 router.use(express.urlencoded({extended:false}));
 
+const newUserSchema = Joi.object({
+    email: Joi.string().trim().email({ allowFullyQualified: true, minDomainSegments: 2 }).required(),
+    password: Joi.string().trim().min(8).max(50).required(),
+    fullName: Joi.string().min(1).max(100).required(),
+    givenName: Joi.string().min(1).max(50).required(),
+    familyName: Joi.string().min(1).max(50).required(),
+    role: Joi.array().items(Joi.string().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Project Manager', 'Technical Manager')).required()
+});
+
+const loginUserSchema = Joi.object({
+    email: Joi.string().trim().email({ allowFullyQualified: true, minDomainSegments: 2 }).required(),
+    password: Joi.string().trim().min(8).max(50).required(),
+})
+
+const updateUserSchema = Joi.object({
+    password: Joi.string().trim().min(8).max(50),
+    fullName: Joi.string().min(1).max(100),
+    givenName: Joi.string().min(1).max(50),
+    familyName: Joi.string().min(1).max(50),
+    role: Joi.array().items(Joi.string().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Project Manager', 'Technical Manager'))
+})
 //FIXME: use this array to store user data in for now
 //we will replace this with a database in a later assignment
 // const usersArray =[{"email":"tkettoe0@hc360.com","password":"gO4+K9#X","fullName":"Tawsha Kettoe","firstName":"Tawsha","lastName":"Kettoe","role":"Safety Technician II","_id":1},
@@ -29,40 +53,27 @@ router.get('/list', async (req,res) => {
     }
 });
 
-router.get("/:userId", async (req,res) => {
+router.get("/:userId", validId('userId'), async (req,res) => {
     //Reads the userId from the URL and stores in a variable
-    const userId = req.params.userId;
+    const userId = req.userId;
     debugUser(userId);
     //FIXME: Get the user from usersArray and send response as JSON
     try{
         const user = await getUserById(userId);
         debugUser(`The user is: ${user.fullName}`)
-        if (user){
-            res.status(200).json(user);
-        } else {
-            res.status(404).json({error: `User ${userId} not found`});
-        }
+        res.status(200).json(user);
     } catch(err) {
         res.status(500).json({error: err});
     }
 });
 
-router.post('/register', async (req,res) => {
+router.post('/register', validBody(newUserSchema), async (req,res) => {
     const user = req.body;
 
     // Check if the email is already registered
     const isEmailRegistered = await checkEmailExists(user.email);
     if (isEmailRegistered) {
         res.status(400).json({ error: 'Email already registered.' });
-        return; // Exit the registration process
-    }
-
-    // Check if all required fields are present
-    const requiredFields = ['email', 'password', 'fullName', 'givenName', 'familyName'];
-    const missingFields = requiredFields.filter(field => !user[field]);
-
-    if (missingFields.length > 0) {
-        res.status(400).json({ error: `Required fields missing: ${missingFields.join(', ')}.` });
         return; // Exit the registration process
     }
 
@@ -82,17 +93,11 @@ router.post('/register', async (req,res) => {
     debugUser(user);
 });
 
-router.post('/login',async (req,res) => {
+router.post('/login',validBody(loginUserSchema), async (req,res) => {
     const user = req.body;
-
-    if (!user.email || !user.password) {
-        res.status(400).json({ error: 'Please enter your login credentials.' });
-        return;
-    }
     debugUser(user);
     try {
         const resultUser = await loginUser(user);
-  
         if (resultUser && await bcrypt.compare(user.password, resultUser.password)) {
             res.status(200).json({ message: 'Welcome back!', userId: resultUser._id });
         } else {
@@ -103,9 +108,9 @@ router.post('/login',async (req,res) => {
     }
 });
 
-router.put('/:userId', async (req, res) => {
+router.put('/:userId',validId('userId'), validBody(updateUserSchema), async (req, res) => {
     //FIXME:  update existing user and send response as JSON
-    const userId = req.params.userId;
+    const userId = req.userId;
     const updatedUser = req.body;
 
     try {
@@ -122,20 +127,15 @@ router.put('/:userId', async (req, res) => {
             res.status(400).json({ message: `User ${userId} not updated` });
         }
     } catch (err) {
-        if (err.message === `User ${userId} not found`) {
-            res.status(404).json({ error: `User ${userId} not found` });
-        } else {
-            res.status(404).json({ error: err.message });
-        }
+        res.status(404).json({ error: err.message });
     }
 });
 
-router.delete('/:userId', async (req, res) => {
-    const userId = req.params.userId;
+router.delete('/:userId', validId('userId'), async (req, res) => {
+    const userId = req.userId;
     debugUser(userId);
     try {
         const dbResult = await deleteUser(userId);
-        
         if (dbResult.deletedCount == 1) {
             res.status(200).json({ message: `User ${userId} deleted!`, userId });
         } else {
