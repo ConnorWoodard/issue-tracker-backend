@@ -8,7 +8,8 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import { UserRouter } from './routes/api/user.js';
 import { BugRouter } from './routes/api/bug.js';
-
+import { CommentRouter } from './routes/api/comment.js';
+import { TestRouter } from './routes/api/test.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +21,8 @@ app.use(express.static('public'));
 app.use(express.urlencoded({extended: true}));
 app.use('/api/user', UserRouter);
 app.use('/api/bug', BugRouter);
+app.use('/api/bugs', CommentRouter);
+app.use('/api/bug', TestRouter);
 
 //register routes
 app.get('/',(req,res) => {
