@@ -291,6 +291,8 @@ async function updateTestCase(bugId, testId, isPassed) {
   
     // Update the isPassed field of the specified test case
     existingBug.testCases[testCaseIndex].isPassed = isPassed;
+
+    existingBug.testCases[testCaseIndex].updatedOn = new Date().toLocaleString('en-US');
   
     // Update the bug document
     await db.collection("Bug").updateOne(
