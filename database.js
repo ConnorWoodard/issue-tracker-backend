@@ -98,6 +98,27 @@ async function newBug(bug){
     return result;
 }
 
+async function findUserByFullName(fullName) {
+    try {
+      const db = await connect(); // Connect to your MongoDB database
+      const collection = db.collection('User'); // Replace 'User' with your actual collection name
+  
+      const user = await collection.findOne({ fullName });
+  
+      if (user) {
+        // Extract the userId from the user object and return both user and userId
+        const userId = user._id; // Assuming the user object has an _id field
+  
+        return { user, userId };
+      } else {
+        // If the user is not found, return null for both user and userId
+        return { user: null, userId: null };
+      }
+    } catch (err) {
+      throw err; // Handle or log the error as needed
+    }
+  }
+
 async function updateBug(bugId, updatedBug) {
     const db = await connect();
     const existingBug = await db.collection("Bug").findOne({ _id: newId(bugId) });
@@ -314,11 +335,20 @@ async function deleteTestCase(bugId, testId) {
     return result;
 }
 
+function calculateDateFromDaysAgo(daysAgo) {
+    const currentDate = new Date();
+    const targetDate = new Date(currentDate);
+    targetDate.setDate(currentDate.getDate() - daysAgo);
+    targetDate.setHours(0, 0, 0, 0); // Remove time information (set to midnight)
+    return targetDate;
+  }
+
 // export functions
 export {newId, connect, ping, getUsers, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser,
-     getBugs, getBugById, newBug, updateBug, classifyBug, assignBugToUser, closeBug,
+     getBugs, getBugById, newBug, findUserByFullName, updateBug, classifyBug, assignBugToUser, closeBug,
     getComments, getCommentById, addComment,
-    getTestCases, getTestCaseById, addTestCase, updateTestCase, deleteTestCase};
+    getTestCases, getTestCaseById, addTestCase, updateTestCase, deleteTestCase,
+    calculateDateFromDaysAgo};
 
 // test the database connection
 ping();

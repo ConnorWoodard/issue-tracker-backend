@@ -8,7 +8,7 @@ import bcrypt from 'bcrypt';
 import Joi from 'joi';
 
 import { nanoid } from 'nanoid';
-import { getUsers, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser } from '../../database.js';
+import { getUsers, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser, calculateDateFromDaysAgo } from '../../database.js';
 import { validBody } from '../../middleware/validBody.js';
 import { validId } from '../../middleware/validId.js';
 
@@ -33,8 +33,25 @@ const updateUserSchema = Joi.object({
     fullName: Joi.string().min(1).max(100),
     givenName: Joi.string().min(1).max(50),
     familyName: Joi.string().min(1).max(50),
-    role: Joi.array().items(Joi.string().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Project Manager', 'Technical Manager'))
-})
+    role: Joi.alternatives(
+      Joi.string().valid(
+        'Developer',
+        'Quality Analyst',
+        'Business Analyst',
+        'Project Manager',
+        'Technical Manager'
+      ),
+      Joi.array().items(
+        Joi.string().valid(
+          'Developer',
+          'Quality Analyst',
+          'Business Analyst',
+          'Project Manager',
+          'Technical Manager'
+        )
+      )
+    )
+  });
 //FIXME: use this array to store user data in for now
 //we will replace this with a database in a later assignment
 // const usersArray =[{"email":"tkettoe0@hc360.com","password":"gO4+K9#X","fullName":"Tawsha Kettoe","firstName":"Tawsha","lastName":"Kettoe","role":"Safety Technician II","_id":1},
@@ -44,13 +61,81 @@ const updateUserSchema = Joi.object({
 
 router.get('/list', async (req,res) => {
     debugUser('Getting all the users');
-    try{
+    const {
+        keywords,
+        role,
+        minAge,
+        maxAge,
+        sortBy,
+        pageSize = 5,
+        pageNumber = 1,
+      } = req.query;
+    
+      const match = {};
+      let sort = { createdDate: -1 };
+    
+      // Build the filter and sorting based on query parameters.
+    
+      if (keywords) {
+        match.$text = { $search: keywords };
+      }
+    
+      if (role) {
+        match.role = role;
+      }
+    
+      if (minAge && maxAge) {
+        match.createdDate = {
+          $gte: calculateDateFromDaysAgo(maxAge),
+          $lt: calculateDateFromDaysAgo(minAge),
+        };
+      } else if (minAge) {
+        match.createdDate = { $lt: calculateDateFromDaysAgo(minAge) };
+      } else if (maxAge) {
+        match.createdDate = { $gte: calculateDateFromDaysAgo(maxAge) };
+      }
+    
+      // Handle sorting options.
+      switch (sortBy) {
+        case 'oldest':
+          sort = { createdDate: 1 };
+          break;
+        case 'givenName':
+          sort = { givenName: 1, familyName: 1, createdDate: 1 };
+          break;
+        case 'familyName':
+          sort = { familyName: 1, givenName: 1, createdDate: 1 };
+          break;
+        case 'role':
+          sort = { role: 1, givenName: 1, familyName: 1, createdDate: 1 };
+          break;
+        case 'newest':
+          sort = { createdDate: -1 };
+          break;
+      }
+    
+      try {
         const db = await connect();
-        const users = await getUsers();
+        const pipeline = [
+          { $match: match },
+          { $sort: sort },
+          { $skip: (pageNumber - 1) * pageSize },
+          { $limit: parseInt(pageSize) },
+        ];
+    
+        const cursor = await db.collection('User').aggregate(pipeline);
+        const users = await cursor.toArray();
         res.status(200).json(users);
-    } catch(err) {
-        res.status(500).json({error: err});
-    }
+      } catch (err) {
+        res.status(500).json({ error: err.stack });
+      }
+    // try{
+    //     const db = await connect();
+    //     const users = await getUsers();
+    //     res.status(200).json(users);
+    // } catch(err) {
+    //     res.status(500).json({error: err});
+    // }
 });
 
 router.get("/:userId", validId('userId'), async (req,res) => {

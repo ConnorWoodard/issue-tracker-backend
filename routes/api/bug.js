@@ -7,7 +7,7 @@ const debugBug = debug('app:BugRouter');
 import Joi from 'joi';
 
 import { nanoid } from 'nanoid';
-import { getBugs, connect, getBugById, newBug, updateBug, classifyBug, assignBugToUser, getUserById, newId, closeBug } from '../../database.js';
+import { getBugs, connect, getBugById, newBug, findUserByFullName, updateBug, classifyBug, assignBugToUser, getUserById, newId, closeBug, calculateDateFromDaysAgo } from '../../database.js';
 import { validBody } from '../../middleware/validBody.js';
 import { validId } from '../../middleware/validId.js';
 
@@ -17,6 +17,7 @@ const newBugSchema = Joi.object({
     title: Joi.string().min(1).max(50).required(),
     description: Joi.string().min(10).required(),
     stepsToReproduce: Joi.string().min(10).required(),
+    fullName: Joi.string().min(2).required(),
 });
 
 const updateBugSchema = Joi.object({
@@ -42,14 +43,90 @@ const closeBugSchema = Joi.object({
 // {"title":"Error code 404","description":"Whenever I try to log in, an error 404 message opens saying that it cant find my account","stepsToReproduce":"Login to this persons account, see what is going on","_id":4}]
 
 router.get('/list', async (req,res) => {
-    debugBug('Getting all the bugs');
-    try{
-        const db = await connect();
-        const bugs = await getBugs();
-        res.status(200).json(bugs);
-    } catch(err) {
-        res.status(500).json({error: err});
+    debugBug(`Getting all bugs, the query string is ${JSON.stringify(req.query)}`);
+
+    let {
+      keywords,
+      classification,
+      minAge,
+      maxAge,
+      closed,
+      sortBy,
+      pageSize = 5,
+      pageNumber = 1,
+    } = req.query;
+  
+    const match = {}; // The match stage of the aggregation pipeline is used for filtering bugs.
+    let sort = { creationDate: -1 }; // Default to sorting by newest.
+  
+    // Build the filter and sorting based on query parameters.
+    if (keywords) {
+      match.$text = { $search: keywords };
     }
+  
+    if (classification) {
+      match.classification = classification;
+    }
+  
+    if (minAge && maxAge) {
+      match.creationDate = {
+        $gte: calculateDateFromDaysAgo(maxAge),
+        $lt: calculateDateFromDaysAgo(minAge),
+      };
+    } else if (minAge) {
+      match.creationDate = { $lt: calculateDateFromDaysAgo(minAge) };
+    } else if (maxAge) {
+      match.creationDate = { $gte: calculateDateFromDaysAgo(maxAge) };
+    }
+  
+    if (closed !== undefined) {
+      match.closed = closed === 'true';
+    }
+  
+    // Handle sorting options.
+    switch (sortBy) {
+      case 'oldest':
+        sort = { creationDate: 1 };
+        break;
+      case 'title':
+        sort = { title: 1, creationDate: -1 };
+        break;
+      case 'classification':
+        sort = { classification: 1, creationDate: -1 };
+        break;
+      case 'assignedTo':
+        sort = { assignedTo: 1, creationDate: -1 };
+        break;
+      case 'createdBy':
+        const authorFullName = req.query.authorFullName; // Get authorFullName from query parameters
+        match['author.fullName'] = authorFullName; // Add filter for authorFullName
+        sort = { 'author.fullName': 1, creationDate: -1 };
+        break;
+    }
+  
+    try {
+      const db = await connect();
+      const pipeline = [
+        { $match: match },
+        { $sort: sort },
+        { $skip: (pageNumber - 1) * pageSize },
+        { $limit: parseInt(pageSize) },
+      ];
+  
+      const cursor = await db.collection('Bug').aggregate(pipeline);
+      const bugs = await cursor.toArray();
+      res.status(200).json(bugs);
+    } catch (err) {
+      res.status(500).json({ error: err.stack });
+    }
+    // debugBug('Getting all the bugs');
+    // try{
+    //     const db = await connect();
+    //     const bugs = await getBugs();
+    //     res.status(200).json(bugs);
+    // } catch(err) {
+    //     res.status(500).json({error: err});
+    // }
 });
 
 router.get("/:bugId", validId('bugId'), async (req,res) => {
@@ -67,31 +144,41 @@ router.get("/:bugId", validId('bugId'), async (req,res) => {
 });
 
 router.post('/new', validBody(newBugSchema), async (req, res) => {
-    const { title, description, stepsToReproduce } = req.body;
+    const { title, description, stepsToReproduce, fullName} = req.body;
 
-    // const requiredFields = ['title', 'description', 'stepsToReproduce'];
-    // const missingFields = requiredFields.filter(field => !req.body[field]);
+try {
+  // Check if the fullName is provided in the request body
+  if (!fullName) {
+    res.status(400).json({ error: "fullName is required in the request body." });
+    return;
+  }
 
-    try {
-        // If any required field is missing, respond with a 400 status and a JSON error object
-        // if (missingFields.length > 0) {
-        //     res.status(400).json({ error: `Required fields missing: ${missingFields.join(', ')}.` });
-        //     return; // Return to avoid executing the code below
-        // }
+  // Find the user by fullName in the User collection
+  const user = await findUserByFullName(fullName);
 
-        const bug = {
-            title,
-            description,
-            stepsToReproduce,
-            creationDate: new Date().toLocaleString('en-US'), // Set creation date to current date and time
-        };
-        debugBug(bug);
-        const dbResult = await newBug(bug);
-        res.status(200).json({ message: "New bug reported!", bugId: dbResult.insertedId });
-    } catch (err) {
-        // Handle database errors and promise rejections
-        res.status(500).json({ error: err.message });
-    }
+  if (!user) {
+    res.status(400).json({ error: "User not found with the provided fullName." });
+    return;
+  }
+
+  const bug = {
+    title,
+    description,
+    stepsToReproduce,
+    creationDate: new Date().toLocaleString('en-US'),
+    author: {
+      fullName: fullName,
+      userId: user.userId,
+    },
+  };
+
+  debugBug(bug);
+  const dbResult = await newBug(bug);
+  res.status(200).json({ message: "New bug reported!", bugId: dbResult.insertedId });
+} catch (err) {
+  // Handle database errors and promise rejections
+  res.status(500).json({ error: err.message });
+}
 });
 
 
