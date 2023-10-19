@@ -20,7 +20,10 @@ const newUserSchema = Joi.object({
     fullName: Joi.string().min(1).max(100).required(),
     givenName: Joi.string().min(1).max(50).required(),
     familyName: Joi.string().min(1).max(50).required(),
-    role: Joi.array().items(Joi.string().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Project Manager', 'Technical Manager')).required()
+    role: Joi.alternatives().try(
+      Joi.array().items(Joi.string().trim().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Product Manager', 'Technical Manager')),
+      Joi.string().trim().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Product Manager', 'Technical Manager')
+    ).required()
 });
 
 const loginUserSchema = Joi.object({
@@ -33,23 +36,9 @@ const updateUserSchema = Joi.object({
     fullName: Joi.string().min(1).max(100),
     givenName: Joi.string().min(1).max(50),
     familyName: Joi.string().min(1).max(50),
-    role: Joi.alternatives(
-      Joi.string().valid(
-        'Developer',
-        'Quality Analyst',
-        'Business Analyst',
-        'Project Manager',
-        'Technical Manager'
-      ),
-      Joi.array().items(
-        Joi.string().valid(
-          'Developer',
-          'Quality Analyst',
-          'Business Analyst',
-          'Project Manager',
-          'Technical Manager'
-        )
-      )
+    role: Joi.alternatives().try(
+      Joi.array().items(Joi.string().trim().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Product Manager', 'Technical Manager')),
+      Joi.string().trim().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Product Manager', 'Technical Manager')
     )
   });
 //FIXME: use this array to store user data in for now
