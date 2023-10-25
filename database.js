@@ -343,12 +343,17 @@ function calculateDateFromDaysAgo(daysAgo) {
     return targetDate;
   }
 
+async function saveEdit(edit){
+    const db = await connect();
+    const result = await db.collection('Edit').insertOne(edit);
+    return result;
+}
 // export functions
 export {newId, connect, ping, getUsers, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser,
      getBugs, getBugById, newBug, findUserByFullName, updateBug, classifyBug, assignBugToUser, closeBug,
     getComments, getCommentById, addComment,
     getTestCases, getTestCaseById, addTestCase, updateTestCase, deleteTestCase,
-    calculateDateFromDaysAgo};
+    calculateDateFromDaysAgo, saveEdit};
 
 // test the database connection
 ping();

@@ -10,6 +10,8 @@ import { UserRouter } from './routes/api/user.js';
 import { BugRouter } from './routes/api/bug.js';
 import { CommentRouter } from './routes/api/comment.js';
 import { TestRouter } from './routes/api/test.js';
+import cookieParser from 'cookie-parser';
+import { authMiddleware } from '@merlin4/express-auth';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +20,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 app.use(express.static('public'));
+app.use(cookieParser());
+app.use(authMiddleware(process.env.JWT_SECRET, 'authToken', {
+    httpOnly:true,
+    maxAge:1000*60*60
+}))
+
 app.use(express.urlencoded({extended: true}));
 app.use('/api/user', UserRouter);
 app.use('/api/bug', BugRouter);
@@ -35,6 +43,11 @@ app.use((req,res) => {
     debugMain(`Sorry couldn't find ${req.originalUrl}`);
     res.status(404).json({error:`Sorry couldn't find ${req.originalUrl}`});
 });
+
+app.use((err, req, res, next) => {
+    debugMain(err.stack);
+    res.status(err.status).json({error: err.message});
+  })
 
 //add Listener for requests
 const port = process.env.PORT || 5001;

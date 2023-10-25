@@ -8,11 +8,26 @@ import bcrypt from 'bcrypt';
 import Joi from 'joi';
 
 import { nanoid } from 'nanoid';
-import { getUsers, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser, calculateDateFromDaysAgo } from '../../database.js';
+import { getUsers, newId, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser, calculateDateFromDaysAgo, saveEdit } from '../../database.js';
 import { validBody } from '../../middleware/validBody.js';
 import { validId } from '../../middleware/validId.js';
-
+import jwt from 'jsonwebtoken';
+import {isLoggedIn} from '@merlin4/express-auth';
 router.use(express.urlencoded({extended:false}));
+
+async function issueAuthToken(user){
+  const payload = {_id: user._id, email: user.email, role: user.role};
+  const secret = process.env.JWT_SECRET;
+  const options = {expiresIn:'1h'};
+
+  const authToken = jwt.sign(payload, secret, options);
+  return authToken;
+}
+
+function issueAuthCookie(res, authToken){
+  const cookieOptions = {httpOnly:true,maxAge:1000*60*60};
+  res.cookie('authToken', authToken, cookieOptions);
+}
 
 const newUserSchema = Joi.object({
     email: Joi.string().trim().email({ allowFullyQualified: true, minDomainSegments: 2 }).required(),
@@ -23,7 +38,7 @@ const newUserSchema = Joi.object({
     role: Joi.alternatives().try(
       Joi.array().items(Joi.string().trim().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Product Manager', 'Technical Manager')),
       Joi.string().trim().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Product Manager', 'Technical Manager')
-    ).required()
+    ).default('Developer')
 });
 
 const loginUserSchema = Joi.object({
@@ -48,7 +63,7 @@ const updateUserSchema = Joi.object({
 // {"email":"grapport2@angelfire.com","password":"vS7*6`","fullName":"Guy Rapport","firstName":"Guy","lastName":"Rapport","role":"Geological Engineer", "_id":3},
 // {"email":"syeskin3@sina.com.cn","password":"jS8/o","fullName":"Siegfried Yeskin","firstName":"Siegfried","lastName":"Yeskin","role":"Senior Quality Engineer", "_id":4}];
 
-router.get('/list', async (req,res) => {
+router.get('/list', isLoggedIn(), async (req,res) => {
     debugUser('Getting all the users');
     const {
         keywords,
@@ -127,6 +142,19 @@ router.get('/list', async (req,res) => {
     // }
 });
 
+router.get('/me', isLoggedIn(), async (req, res) => {
+  const getLoggedInUser = await getUserById(newId(req.auth._id))
+
+
+    if(getLoggedInUser){
+      // Success Message
+      res.status(200).json(getLoggedInUser);
+      debugUser(`Success, Got "${getLoggedInUser.fullName}" Id: ${getLoggedInUser._id}\n`); // Message Appears in terminal
+    }
+
+});
+
+
 router.get("/:userId", validId('userId'), async (req,res) => {
     //Reads the userId from the URL and stores in a variable
     const userId = req.userId;
@@ -141,6 +169,7 @@ router.get("/:userId", validId('userId'), async (req,res) => {
     }
 });
 
+
 router.post('/register', validBody(newUserSchema), async (req,res) => {
     const user = req.body;
 
@@ -153,14 +182,26 @@ router.post('/register', validBody(newUserSchema), async (req,res) => {
 
     // Ensure "role" is an array of strings
     user.role = Array.isArray(user.role) ? user.role : [user.role];
-
     // Insert the new user into the database
     try {
         const hashedPassword = await bcrypt.hash(user.password, 10);
         user.password = hashedPassword;
         user.createdAt = new Date().toLocaleString('en-US'); // Set the creation date
+        user.role
         const result = await registerUser(user);
-        res.status(200).json({ message: 'New user registered!', userId: result.insertedId });
+        if(result.acknowledged == true){
+          const authToken = await issueAuthToken(user);
+          issueAuthCookie(res, authToken);
+          const edit = {
+            timestamp: new Date().toLocaleString('en-US'),
+            col: 'User',
+            op: 'Insert',
+            target: user._id,
+            update: user
+          }
+          await saveEdit(edit);
+          res.status(200).json({ message: 'New user registered!', userId: result.insertedId });
+        }
     } catch (err) {
         res.status(500).json({error: err.stack});
     }
@@ -173,7 +214,9 @@ router.post('/login',validBody(loginUserSchema), async (req,res) => {
     try {
         const resultUser = await loginUser(user);
         if (resultUser && await bcrypt.compare(user.password, resultUser.password)) {
-            res.status(200).json({ message: 'Welcome back!', userId: resultUser._id });
+            const authToken = await issueAuthToken(resultUser);
+            issueAuthCookie(res, authToken);
+            res.status(200).json(`Welcome ${resultUser.fullName}. Your auth token is ${authToken}`);
         } else {
             res.status(400).json({ error: 'Invalid login credentials provided. Please try again.' });
         }
