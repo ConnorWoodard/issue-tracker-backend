@@ -46,6 +46,13 @@ const loginUserSchema = Joi.object({
     password: Joi.string().trim().min(8).max(50).required(),
 })
 
+const updateMeSchema = Joi.object({
+  password: Joi.string().trim().min(8).max(50),
+  fullName: Joi.string().min(1).max(100),
+  givenName: Joi.string().min(1).max(50),
+  familyName: Joi.string().min(1).max(50),
+})
+
 const updateUserSchema = Joi.object({
     password: Joi.string().trim().min(8).max(50),
     fullName: Joi.string().min(1).max(100),
@@ -154,8 +161,7 @@ router.get('/me', isLoggedIn(), async (req, res) => {
 
 });
 
-
-router.get("/:userId", validId('userId'), async (req,res) => {
+router.get("/:userId", isLoggedIn(), validId('userId'), async (req,res) => {
     //Reads the userId from the URL and stores in a variable
     const userId = req.userId;
     debugUser(userId);
@@ -168,7 +174,6 @@ router.get("/:userId", validId('userId'), async (req,res) => {
         res.status(500).json({error: err});
     }
 });
-
 
 router.post('/register', validBody(newUserSchema), async (req,res) => {
     const user = req.body;
@@ -225,45 +230,178 @@ router.post('/login',validBody(loginUserSchema), async (req,res) => {
     }
 });
 
-router.put('/:userId',validId('userId'), validBody(updateUserSchema), async (req, res) => {
-    //FIXME:  update existing user and send response as JSON
-    const userId = req.userId;
-    const updatedUser = req.body;
+router.put('/me', isLoggedIn(), validBody(updateMeSchema), async (req, res) => {
+  debugUser(`Self Service Route Updating a user ${JSON.stringify(req.auth)}`);
+  const updatedUser = req.body;
 
-    try {
-        if (updatedUser.password) {
-            updatedUser.password = await bcrypt.hash(updatedUser.password, 10);
-        }
-        updatedUser.lastUpdated = new Date().toLocaleString('en-US');
-        const updateResult = await updateUser(userId, updatedUser);
+  try {
+    const userId = newId(req.auth._id);
 
-        if (updateResult.modifiedCount === 1) {
-            res.status(200).json({ message: `User ${userId} updated`, userId });
-            debugUser(userId);
-        } else {
-            res.status(400).json({ message: `User ${userId} not updated` });
-        }
-    } catch (err) {
-        res.status(404).json({ error: err.message });
+    const user = await getUserById(newId(req.auth._id));
+
+    if (user) {
+      const changes = {}; // Create an object to store the changed fields and their new values
+
+      if (updatedUser.fullName && updatedUser.fullName !== user.fullName) {
+        changes.fullName = updatedUser.fullName;
+        user.fullName = updatedUser.fullName;
+      }
+
+      if (updatedUser.password) {
+        changes.password = updatedUser.password;
+        user.password = await bcrypt.hash(updatedUser.password, 10);
+      }
+
+      if (updatedUser.familyName && updatedUser.familyName !== user.familyName) {
+        changes.familyName = updatedUser.familyName;
+        user.familyName = updatedUser.familyName;
+      }
+
+      if (updatedUser.givenName && updatedUser.givenName !== user.givenName) {
+        changes.givenName = updatedUser.givenName;
+        user.givenName = updatedUser.givenName;
+      }
+
+      debugUser(JSON.stringify(req.auth));
+      // Update the lastUpdatedOn and lastUpdatedBy fields
+      user.lastUpdatedOn = new Date().toLocaleString('en-US');
+      user.lastUpdatedBy = {
+        _id: req.auth._id,
+        fullName: updatedUser.fullName,
+        email: req.auth.email,
+        role: req.auth.role,
+      };
+
+      const dbResult = await updateUser(userId,user);
+
+      if (dbResult.modifiedCount == 1) {
+        const edit = {
+          timestamp: new Date().toLocaleString('en-US'),
+          col: 'User',
+          op: 'update',
+          target: { userId: req.auth._id },
+          update: changes, // Include the changes object
+          auth: {_id:req.auth._id, fullName:updatedUser.fullName, email: req.auth.email, role:req.auth.role},
+        };
+
+        await saveEdit(edit);
+
+        res.status(200).json({ message: `User ${req.auth._id} updated` });
+      } else {
+        res.status(400).json({ message: `User ${req.auth._id} not updated` });
+      }
+    } else {
+      res.status(400).json({ message: `User ${req.auth._id} not updated` });
     }
+  } catch (err) {
+    res.status(500).json({ error: err.stack });
+  }
 });
 
-router.delete('/:userId', validId('userId'), async (req, res) => {
-    const userId = req.userId;
-    debugUser(userId);
-    try {
-        const dbResult = await deleteUser(userId);
-        if (dbResult.deletedCount == 1) {
-            res.status(200).json({ message: `User ${userId} deleted!`, userId });
-        } else {
-            // This block should handle the case where the user doesn't exist
-            res.status(404).json({ error: `User ${userId} not deleted` });
-        }
-    } catch (err) {
-        // Handle other errors, such as database connection errors
-        res.status(404).json({ error: err.message });
+router.put('/:userId', validId('userId'), validBody(updateUserSchema), async (req, res) => {
+  const userId = req.userId;
+  const updatedUser = req.body;
+
+  try {
+    const user = await getUserById(userId);
+
+    if (user) {
+      const changes = {}; // Create an object to store the changed fields and their new values
+
+      if (updatedUser.password) {
+        updatedUser.password = await bcrypt.hash(updatedUser.password, 10);
+        changes.password = updatedUser.password;
+        user.password = updatedUser.password;
+      }
+
+      if (updatedUser.fullName && updatedUser.fullName !== user.fullName) {
+        changes.fullName = updatedUser.fullName;
+        user.fullName = updatedUser.fullName;
+      }
+
+      if (updatedUser.familyName && updatedUser.familyName !== user.familyName) {
+        changes.familyName = updatedUser.familyName;
+        user.familyName = updatedUser.familyName;
+      }
+
+      if (updatedUser.givenName && updatedUser.givenName !== user.givenName) {
+        changes.givenName = updatedUser.givenName;
+        user.givenName = updatedUser.givenName;
+      }
+
+      if (updatedUser.role && updatedUser.role !== user.role) {
+        changes.role = updatedUser.role;
+        user.role = updatedUser.role;
+      }
+
+      // Update the lastUpdatedOn and lastUpdatedBy fields
+      user.lastUpdatedOn = new Date().toLocaleString('en-US');
+      user.lastUpdatedBy = {
+        _id: req.auth._id,
+        fullName: updatedUser.fullName,
+        email: req.auth.email,
+        role: req.auth.role,
+      };
+
+      const updateResult = await updateUser(userId, user);
+
+      if (updateResult.modifiedCount === 1) {
+        const edit = {
+          timestamp: new Date().toLocaleString('en-US'),
+          col: 'User',
+          op: 'update',
+          target: { userId },
+          update: changes, // Include the changes object
+          auth: {_id:req.auth._id, fullName:updatedUser.fullName, email: req.auth.email, role:req.auth.role},
+        };
+
+        await saveEdit(edit);
+
+        res.status(200).json({ message: `User ${userId} updated` });
+      } else {
+        res.status(400).json({ message: `User ${userId} not updated` });
+      }
+    } else {
+      res.status(400).json({ message: `User ${userId} not found` });
     }
+  } catch (err) {
+    res.status(500).json({ error: err.stack });
+  }
 });
 
+router.delete('/:userId', isLoggedIn(), validId('userId'), async (req, res) => {
+  const userId = req.userId;
+  const deletedUser = req.auth.fullName
+  try {
+    const user = await getUserById(userId);
+    
+    if (user) {
+      // Add a record to the edits collection
+      const edit = {
+        timestamp: new Date().toLocaleString('en-US'),
+        col: 'User',
+        op: 'delete',
+        target: { userId },
+        auth: req.auth,
+      };
+
+      await saveEdit(edit); // Save the edit record to the "edits" collection
+
+      const dbResult = await deleteUser(userId);
+
+      if (dbResult.deletedCount === 1) {
+        res.status(200).json({ message: `User ${userId} deleted!`, userId });
+      } else {
+        // Handle any other errors related to database operations
+        res.status(404).json({ error: `User ${userId} not deleted` });
+      }
+    } else {
+      res.status(400).json({ error: `User ${userId} not found` });
+    }
+  } catch (err) {
+    // Handle other errors, such as database connection errors
+    res.status(500).json({ error: err.stack });
+  }
+});
 
 export {router as UserRouter};

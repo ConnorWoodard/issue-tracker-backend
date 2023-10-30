@@ -7,9 +7,11 @@ const debugBug = debug('app:BugRouter');
 import Joi from 'joi';
 
 import { nanoid } from 'nanoid';
-import { getBugs, connect, getBugById, newBug, findUserByFullName, updateBug, classifyBug, assignBugToUser, getUserById, newId, closeBug, calculateDateFromDaysAgo } from '../../database.js';
+import { getBugs, connect, getBugById, newBug, findUserByFullName, updateBug, classifyBug, assignBugToUser, getUserById, newId, closeBug, calculateDateFromDaysAgo, saveEdit } from '../../database.js';
 import { validBody } from '../../middleware/validBody.js';
 import { validId } from '../../middleware/validId.js';
+import jwt from 'jsonwebtoken';
+import {isLoggedIn} from '@merlin4/express-auth';
 
 router.use(express.urlencoded({extended:false}));
 
@@ -17,7 +19,6 @@ const newBugSchema = Joi.object({
     title: Joi.string().min(1).max(50).required(),
     description: Joi.string().min(10).required(),
     stepsToReproduce: Joi.string().min(10).required(),
-    fullName: Joi.string().min(2).required(),
 });
 
 const updateBugSchema = Joi.object({
@@ -42,7 +43,7 @@ const closeBugSchema = Joi.object({
 // {"title":"Keeps crashing","description":"I can explore the site for 10 minutes but then the page just crashes","stepsToReproduce":"Login to account and browse for a few minutes. MAybe have other tabs open","_id":3},
 // {"title":"Error code 404","description":"Whenever I try to log in, an error 404 message opens saying that it cant find my account","stepsToReproduce":"Login to this persons account, see what is going on","_id":4}]
 
-router.get('/list', async (req,res) => {
+router.get('/list', isLoggedIn(), async (req,res) => {
     debugBug(`Getting all bugs, the query string is ${JSON.stringify(req.query)}`);
 
     let {
@@ -129,7 +130,7 @@ router.get('/list', async (req,res) => {
     // }
 });
 
-router.get("/:bugId", validId('bugId'), async (req,res) => {
+router.get("/:bugId", isLoggedIn(), validId('bugId'), async (req,res) => {
     //Reads the bugId from the URL and stores in a variable
     const bugId = req.bugId;
     debugBug(bugId);
@@ -143,59 +144,101 @@ router.get("/:bugId", validId('bugId'), async (req,res) => {
     }
 });
 
-router.post('/new', validBody(newBugSchema), async (req, res) => {
-    const { title, description, stepsToReproduce, fullName} = req.body;
+router.post('/new', isLoggedIn(), validBody(newBugSchema), async (req, res) => {
+    const newBugParams = req.body;
 
 try {
   // Check if the fullName is provided in the request body
-  if (!fullName) {
-    res.status(400).json({ error: "fullName is required in the request body." });
-    return;
-  }
 
   // Find the user by fullName in the User collection
-  const user = await findUserByFullName(fullName);
+  const user = await getUserById(newId(req.auth._id))
 
   if (!user) {
     res.status(400).json({ error: "User not found with the provided fullName." });
     return;
   }
 
-  const bug = {
-    title,
-    description,
-    stepsToReproduce,
-    creationDate: new Date().toLocaleString('en-US'),
-    author: {
-      fullName: fullName,
-      userId: user.userId,
+  
+  const dbResult = await newBug(newBugParams, user);
+  debugBug(dbResult);
+  if(dbResult.acknowledged == true){
+    const edit = {
+      timestamp: new Date().toLocaleString('en-US'),
+      col: 'bug',
+      op: 'insert',
+      target: { bugId: dbResult.insertedId },
+      update: {
+        title: newBugParams.title,
+        description: newBugParams.description,
+        stepsToReproduce: newBugParams.stepsToReproduce,
+        createdOn: new Date().toLocaleString('en-US'),
+        author: {
+          fullName: user.fullName,
+          userId: user._id,
+        },
     },
-  };
-
-  debugBug(bug);
-  const dbResult = await newBug(bug);
+    auth: req.auth,
+  }
+  await saveEdit(edit);
   res.status(200).json({ message: "New bug reported!", bugId: dbResult.insertedId });
+}
 } catch (err) {
   // Handle database errors and promise rejections
   res.status(500).json({ error: err.message });
 }
 });
 
-
 router.put('/:bugId', validId('bugId'), validBody(updateBugSchema), async (req, res) => {
     //FIXME:  update existing user and send response as JSON
     const bugId = req.bugId;
     const updatedBug = req.body;
-
+  
     try {
-        updatedBug.lastUpdated = new Date().toLocaleString('en-US');
-        const updateResult = await updateBug(bugId, updatedBug);
+        const user = await getUserById(newId(req.auth._id))
+        const bug = await getBugById(bugId);
 
-        if (updateResult.modifiedCount === 1) {
-            res.status(200).json({ message: `Bug ${bugId} updated`, bugId });
-            debugBug(bugId);
+        if (bug) {
+            const changes = {};
+
+            if(updatedBug.title) {
+              changes.title = updatedBug.title;
+              bug.title = updatedBug.title;
+            }
+
+            if(updatedBug.description) {
+              changes.description = updatedBug.description;
+              bug.description = updatedBug.description;
+            }
+
+            if(updatedBug.stepsToReproduce) {
+              changes.stepsToReproduce = updatedBug.stepsToReproduce;
+              bug.stepsToReproduce = updatedBug.stepsToReproduce;
+            }
+
+            bug.lastUpdatedOn = new Date().toLocaleString('en-US');
+            bug.lastUpdatedBy = {
+              fullName: user.fullName,
+              userId: user._id
+            };
+
+            const updateResult = await updateBug(bugId, bug);
+            if (updateResult.modifiedCount === 1) {
+              const edit = {
+                timestamp: new Date().toLocaleString('en-US'),
+                col: 'bug',
+                op: 'update',
+                target: { bugId },
+                update: changes, // Include the changes object
+                auth: {_id:req.auth._id, fullName:user.fullName, title: bug.title},
+              };
+              await saveEdit(edit);
+              debugBug(bugId, bug);
+              res.status(200).json({ message: `Bug ${bugId} updated` });
+            } else {
+              res.status(400).json({ message: `Bug ${bugId} not updated` });
+            }
         } else {
-            res.status(400).json({ message: `Bug ${bugId} not updated` });
+          res.status(400).json({ message: `User ${userId} not found` });
         }
     } catch (err) {
         res.status(404).json({ error: err.message });
@@ -208,103 +251,145 @@ router.put('/:bugId/classify', validId('bugId'), validBody(classifyBugSchema), a
     const classifiedBug = req.body;
 
     try {
-        if (!classifiedBug.classification) {
-            res.status(400).json({ error: "Classification is missing" });
-            return;
-        }
+        const user = await getUserById(newId(req.auth._id))
+        const bug = await getBugById(bugId);
 
-        classifiedBug.classifiedOn = new Date().toLocaleString('en-US');
-        classifiedBug.lastUpdated = new Date().toLocaleString('en-US');
-        debugBug(bugId, classifiedBug.classification)
-        const updateResult = await classifyBug(bugId, classifiedBug);
-
-        if (updateResult.modifiedCount === 1) {
-            res.status(200).json({ message: `Bug ${bugId} classified!`, bugId });
+        if(bug){
+            const changes = {};
+            if(classifiedBug.classification){
+              changes.classification = classifiedBug.classification;
+              bug.classification = classifiedBug.classification;
+            }
+            bug.classifiedOn = new Date().toLocaleString('en-US');
+            bug.classifiedBy = {
+              fullName: user.fullName,
+              userId: user._id
+            };
+            const updateResult = await classifyBug(bugId, bug, user);
+            if (updateResult.modifiedCount === 1) {
+              const edit = {
+                timestamp: new Date().toLocaleString('en-US'),
+                col: 'bug',
+                op: 'update',
+                target: { bugId },
+                update: changes, // Include the changes object
+                auth: {_id:req.auth._id, fullName:user.fullName, classification: bug.classification},
+              };
+              await saveEdit(edit);
+              debugBug(bugId, bug);
+              res.status(200).json({ message: `Bug ${bugId} classified` });
+            } else {
+              res.status(400).json({ message: `Bug ${bugId} not classified` });
+            }
         } else {
-            res.status(400).json({ message: `Bug ${bugId} not classified` });
+          res.status(400).json({ message: `User ${user} not found` });
         }
     } catch (err) {
-        if (err.message === `Bug ${bugId} not found.`) {
-            res.status(404).json({ error: `Bug ${bugId} not found.` });
-        } else {
-            res.status(500).json({ error: err.message });
-        }
+          res.status(500).json({ error: err.message });
     }
 });
 
 
 router.put('/:bugId/assign',validId('bugId'), validBody(assignBugSchema), async (req, res) => {
     const bugId = req.bugId;
-    const { assignedToUserId } = req.body; // Extract assignedToUserId from the request body
-
+    const assignedBug = req.body; // Extract assignedToUserId from the request body
     try {
-        // Check if assignedToUserId is missing or invalid
-        if (!assignedToUserId) {
-            res.status(400).json({ error: "Missing User Id" });
-            return;
-        }
+      const user = await getUserById(newId(req.auth._id))
+      const bug = await getBugById(bugId);
 
-        // Call getUserById to get user information
-        const userInfo = await getUserById(assignedToUserId);
-
-        if (!userInfo) {
-            res.status(404).json({ error: `User ${assignedToUserId} not found.` });
-            return;
-        }
-
-        const db = await connect();
-
-        // Use collection.findOne() to search for the bug by ID
-        const existingBug = await db.collection("Bug").findOne({ _id: newId(bugId) });
-
-        if (!existingBug) {
-            res.status(404).json({ error: `Bug ${bugId} not found.` });
-            return;
-        }
-
-        // Create the assignedBug object with assignedToUserId and other properties
-        const assignedBug = {
-            assignedToUserId,
-            assignedToUserName: userInfo.fullName, // Use userInfo.userName from the database
-            assignedOn: new Date().toLocaleString('en-US'), // Set assignedOn to the current date and time
-            lastUpdated: new Date().toLocaleString('en-US'), // Set lastUpdated to the current date and time
-        };
-
-        // Use the assignBugToUser function to update the bug's fields
-        const result = await assignBugToUser(bugId, assignedBug);
-        debugBug(`Assigned to ${userInfo.fullName}`);
-        if (result.modifiedCount === 1) {
-            res.status(200).json({ message: `Bug ${bugId} assigned!`, bugId });
-        } else {
+      if(bug){
+          const changes = {};
+          if(assignedBug.assignedToUserId){
+            changes.assignedToUserId = assignedBug.assignedToUserId;
+            bug.assignedToUserId = assignedBug.assignedToUserId;
+          }
+          bug.assignedOn = new Date().toLocaleString('en-US');
+          bug.assignedBy = {
+            fullName: user.fullName,
+            userId: user._id
+          };
+          const updateResult = await assignBugToUser(bugId, bug);
+          if (updateResult.modifiedCount === 1) {
+            const edit = {
+              timestamp: new Date().toLocaleString('en-US'),
+              col: 'bug',
+              op: 'update',
+              target: { bugId },
+              update: changes, // Include the changes object
+              auth: {_id:req.auth._id, fullName:user.fullName},
+            };
+            await saveEdit(edit);
+            debugBug(bugId, bug);
+            res.status(200).json({ message: `Bug ${bugId} assigned` });
+          } else {
             res.status(400).json({ message: `Bug ${bugId} not assigned` });
-        }
-    } catch (err) {
+          }
+      } else {
+        res.status(400).json({ message: `User ${user} not found` });
+      }
+  } catch (err) {
         res.status(500).json({ error: err.message });
-    }
+  }
+
 });
 
-router.put('/:bugId/close',validId('bugId'), async (req, res) => {
-    const bugId = req.params.bugId;
-    const closed = req.body.closed;
-    debugBug(closed);
-    try {
-        // Check if 'closed' is missing or invalid
-        if (closed === undefined || (closed !== "true" && closed !== "false")) {
-            res.status(400).json({ error: "Invalid or missing 'closed' data." });
-            return;
-        }
+router.put('/:bugId/close', isLoggedIn(), validId('bugId'), validBody(closeBugSchema), async (req, res) => {
+  const bugId = req.bugId;
+  const closedBug = req.body.closed; // Declare 'closedBug' and assign it the value of req.closed
+  try {
+      // Check if 'closedBug' is missing or invalid
+      if ((closedBug != "true" && closedBug != "false")) {
+          res.status(400).json({ error: "Invalid or missing 'closed' data." });
+          return;
+      }
 
-        // Convert the 'closed' string to a boolean
-        const isClosed = closed === "true";
+      // Convert the 'closedBug' string to a boolean
+      const isClosed = closedBug === "true";
 
-        const db = await connect();
+      const user = await getUserById(newId(req.auth._id));
+      const bug = await getBugById(bugId);
 
-        const result = await closeBug(bugId, isClosed);
+      if (bug) {
+          const changes = {};
+          if (isClosed !== bug.closed) {
+              changes.closed = isClosed;
+              bug.closed = isClosed;
+              if (!isClosed) {
+                  // Bug is being re-opened
+                  bug.closedOn = null;
+                  bug.closedBy = null;
+              }
+          }
 
-        res.status(200).json(result);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+          // Update the bug's lastUpdated field
+          bug.lastUpdated = new Date().toLocaleString('en-US');
+
+          const updateResult = await closeBug(bugId, bug,user);
+
+          if (updateResult.modifiedCount === 1) {
+              const edit = {
+                  timestamp: new Date().toLocaleString('en-US'),
+                  col: 'bug',
+                  op: 'update',
+                  target: { bugId },
+                  update: changes, // Include the changes object
+                  auth: { _id: req.auth._id, fullName: user.fullName },
+              };
+              await saveEdit(edit);
+              debugBug(bugId, bug);
+
+              const statusMessage = isClosed ? `Bug ${bugId} closed!` : `Bug ${bugId} re-opened!`;
+              res.status(200).json({ message: statusMessage });
+          } else {
+              res.status(400).json({ message: `Bug ${bugId} not updated` });
+          }
+      } else {
+          res.status(400).json({ message: `Bug ${bugId} not found` });
+      }
+  } catch (err) {
+      res.status(500).json({ error: err.message });
+  }
 });
+
 
 export {router as BugRouter};

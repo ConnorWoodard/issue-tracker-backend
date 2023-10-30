@@ -92,11 +92,28 @@ async function getBugById(bugId){
     return bug;
 }
 
-async function newBug(bug){
+async function newBug(newBugParams, user) {
     const db = await connect();
-    const result = await db.collection("Bug").insertOne(bug);
+  
+    // Organize the bug document with the author field
+    const bug = {
+        
+        title: newBugParams.title,
+        description: newBugParams.description,
+        stepsToReproduce: newBugParams.stepsToReproduce,
+        createdOn: new Date().toLocaleString('en-US'),
+        author: {
+            fullName: user.fullName,
+            userId: user._id,
+        },
+        classification: 'unclassified',
+        closed: false,
+    };
+  
+    const result = await db.collection('Bug').insertOne(bug);
     return result;
-}
+  }
+  
 
 async function findUserByFullName(fullName) {
     try {
@@ -170,35 +187,39 @@ async function assignBugToUser(bugId, assignedBug) {
 }
 
 // Define an async function to close a bug and return a status message
-async function closeBug(bugId, closedData) {
+async function closeBug(bugId, bugData, user) {
     const db = await connect();
 
     try {
         // Use collection.findOne() to search for the bug by ID
         const existingBug = await db.collection("Bug").findOne({ _id: newId(bugId) });
-
         if (!existingBug) throw new Error(`Bug ${bugId} not found.`);
 
-        // Convert the 'closed' string to a boolean or use the provided boolean
-        const isClosed = closedData === "true" || !!closedData;
-
-        // Update the bug's fields using closedData
+        // Copy over the fields from bugData to update the bug document
         const updateFields = {
-            closed: isClosed,
-            closedOn: isClosed ? new Date().toLocaleString('en-US') : null,
             lastUpdated: new Date().toLocaleString('en-US'),
+            // Add other fields from bugData as needed
         };
+
+        // Only update the 'closed' and 'closedBy' related fields if provided
+        if (bugData.closed !== undefined) {
+            const isClosed = bugData.closed === "true" || !!bugData.closed;
+            updateFields.closed = isClosed;
+            updateFields.closedOn = isClosed ? new Date().toLocaleString('en-US') : null;
+            updateFields.closedBy = isClosed ? {
+                fullName: user.fullName,
+                userId: user._id
+            } : null;
+        }
 
         const result = await db.collection("Bug").updateOne({ _id: newId(bugId) }, { $set: updateFields });
 
-        // Determine the status message based on the 'closed' state
-        const statusMessage = isClosed ? `Bug ${bugId} closed!` : `Bug ${bugId} opened!`;
-
-        return { message: statusMessage, bugId };
+        return result;
     } catch (err) {
-            throw err;
+        throw err;
     }
 }
+
 
 async function getComments(bugId) {
     const db = await connect();
@@ -274,10 +295,10 @@ async function getTestCaseById(bugId, testId) {
 async function addTestCase(bugId, testCase) {
     const db = await connect();
     const bugObjectId = new ObjectId(bugId);
-  
+   
     // Check if the 'testCases' array exists. If not, create it.
     const existingBug = await db.collection("Bug").findOne({ _id: bugObjectId });
-  
+    debugDb(`Existing Bug is ${JSON.stringify(existingBug)}`)
     if (!existingBug.testCases) {
       existingBug.testCases = [];
     }
@@ -286,13 +307,13 @@ async function addTestCase(bugId, testCase) {
     existingBug.testCases.push(testCase);
   
     // Update the bug document
-    await db.collection("Bug").updateOne(
+ return await db.collection("Bug").updateOne(
       { _id: bugObjectId },
       { $set: { testCases: existingBug.testCases } }
     );
 }
   
-async function updateTestCase(bugId, testId, isPassed) {
+async function updateTestCase(bugId, testId, isPassed, user) {
     const db = await connect();
   
     // Search for the bug and its test cases
@@ -312,14 +333,23 @@ async function updateTestCase(bugId, testId, isPassed) {
   
     // Update the isPassed field of the specified test case
     existingBug.testCases[testCaseIndex].isPassed = isPassed;
-
-    existingBug.testCases[testCaseIndex].updatedOn = new Date().toLocaleString('en-US');
+    existingBug.testCases[testCaseIndex].lastUpdatedOn = new Date().toLocaleString('en-US');
+    existingBug.testCases[testCaseIndex].lastUpdatedBy = user;
   
     // Update the bug document
-    await db.collection("Bug").updateOne(
-      { _id: bugId },
-      { $set: { testCases: existingBug.testCases } }
+    const result = await db.collection("Bug").updateOne(
+        { _id: newId(bugId) },
+        { $set: { testCases: existingBug.testCases } }
     );
+
+    if (result.modifiedCount !== 1) {
+        throw Error(`Failed to update test case ${testId} for bug ${bugId}`);
+    }
+
+    // Retrieve and return the updated bug
+    const updatedBug = await db.collection("Bug").findOne({ _id: newId(bugId) });
+
+    return updatedBug;
   }
   
 async function deleteTestCase(bugId, testId) {
