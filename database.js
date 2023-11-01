@@ -136,21 +136,36 @@ async function findUserByFullName(fullName) {
     }
   }
 
-async function updateBug(bugId, updatedBug) {
+async function updateBug(bugId, updatedBug, req) {
     const db = await connect();
     const existingBug = await db.collection("Bug").findOne({ _id: newId(bugId) });
     if (!existingBug) {
         throw new Error(`Bug ${bugId} not found`);
     }
-
+    if (existingBug.author.userId != newId(req.auth._id) && !req.auth.role.includes('Business Analyst') &&
+        existingBug.assignedToUserId != newId(req.auth._id)){
+        debugDb("WORLD");
+        return {
+            message: `Only Business Analysts, those assigned, and the creator of this Bug may edit it`,
+            status: 400
+        }
+    }
     const result = await db.collection("Bug").updateOne({ _id: newId(bugId) }, { $set: updatedBug });
     return result;
 }
 
 
-async function classifyBug(bugId, classifiedBug) {
+async function classifyBug(bugId, classifiedBug, req) {
     const db = await connect();
+    const existingBug = await db.collection("Bug").findOne({ _id: newId(bugId) });
 
+    if (existingBug.author.userId != newId(req.auth._id) && !req.auth.role.includes('Business Analyst') &&
+    existingBug.assignedToUserId != newId(req.auth._id)){
+        return {
+            message: `Only Business Analysts, those assigned, and the creator of this Bug may classify it`,
+            status: 400
+        }
+    }
 
     const result = await db.collection("Bug").updateOne({ _id: newId(bugId) },{$set: classifiedBug});
 
@@ -161,7 +176,7 @@ async function classifyBug(bugId, classifiedBug) {
     return result;
 }
 
-async function assignBugToUser(bugId, assignedBug) {
+async function assignBugToUser(bugId, assignedBug, req) {
     const db = await connect();
 
     try {
@@ -178,6 +193,13 @@ async function assignBugToUser(bugId, assignedBug) {
             throw new Error(`User ${assignedBug.assignedToUserId} not found.`);
         }
 
+        if (existingBug.author.userId != newId(req.auth._id) && !(req.auth.role.includes('Business Analyst') || req.auth.role.includes('Technical Manager')) &&
+        existingBug.assignedToUserId != newId(req.auth._id)){
+        return {
+            message: `Only Business Analysts, Technical Managers, those assigned, and the creator of this Bug may assign it`,
+            status: 400
+        }
+    }
         const result = await db.collection("Bug").updateOne({ _id: newId(bugId) }, { $set: assignedBug });
 
         return result;
@@ -378,12 +400,18 @@ async function saveEdit(edit){
     const result = await db.collection('Edit').insertOne(edit);
     return result;
 }
+
+async function findRoleByName(name){
+    const db = await connect();
+    const role = await db.collection("Role").findOne({name:name});
+    return role;
+}
 // export functions
 export {newId, connect, ping, getUsers, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser,
      getBugs, getBugById, newBug, findUserByFullName, updateBug, classifyBug, assignBugToUser, closeBug,
     getComments, getCommentById, addComment,
     getTestCases, getTestCaseById, addTestCase, updateTestCase, deleteTestCase,
-    calculateDateFromDaysAgo, saveEdit};
+    calculateDateFromDaysAgo, saveEdit, findRoleByName};
 
 // test the database connection
-ping();
+//ping();

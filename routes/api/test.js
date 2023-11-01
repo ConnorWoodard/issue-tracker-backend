@@ -11,7 +11,7 @@ import { addTestCase, connect, getUserById, deleteTestCase, getTestCaseById, get
 import { validBody } from '../../middleware/validBody.js';
 import { validId } from '../../middleware/validId.js';
 import jwt from 'jsonwebtoken';
-import {isLoggedIn} from '@merlin4/express-auth';
+import {isLoggedIn, hasPermission} from '@merlin4/express-auth';
 
 // Define the Test Case Schema for validation
 const testCaseSchema = Joi.object({
@@ -26,7 +26,7 @@ const updateTestCaseSchema = Joi.object({
   isPassed: Joi.alternatives().try((Joi.boolean(), Joi.string().valid('true', 'false'))),
 });
 
-router.get('/:bugId/test/list', isLoggedIn(), validId('bugId'), async (req, res) => {
+router.get('/:bugId/test/list', isLoggedIn(), hasPermission('canViewData'),validId('bugId'), async (req, res) => {
   const bugId = req.bugId;
   debugTest(`Getting test cases for bug ${bugId}`);
 
@@ -39,7 +39,7 @@ router.get('/:bugId/test/list', isLoggedIn(), validId('bugId'), async (req, res)
 });
 
 // GET /api/bug/:bugId/test/:testId
-router.get('/:bugId/test/:testId', isLoggedIn(), validId('bugId'), validId('testId'), async (req, res) => {
+router.get('/:bugId/test/:testId', isLoggedIn(),hasPermission('canViewData'), validId('bugId'), validId('testId'), async (req, res) => {
   const bugId = req.bugId;
   const testId = req.testId;
   debugTest(`Getting test case ${testId} for bug ${bugId}`);
@@ -57,7 +57,7 @@ router.get('/:bugId/test/:testId', isLoggedIn(), validId('bugId'), validId('test
 });
 
 // PUT /api/bug/:bugId/test/new
-router.put('/:bugId/test/new', isLoggedIn(), validId('bugId'), validBody(testCaseSchema), async (req, res) => {
+router.put('/:bugId/test/new', isLoggedIn(),hasPermission('canAddTestCase'), validId('bugId'), validBody(testCaseSchema), async (req, res) => {
   const bugId = req.bugId;
   const newTestCase = req.body;
   debugTest(`Adding a new test case to bug ${bugId}`);
@@ -98,7 +98,7 @@ router.put('/:bugId/test/new', isLoggedIn(), validId('bugId'), validBody(testCas
 });
 
 // PUT /api/bug/:bugId/test/:testId
-router.put('/:bugId/test/:testId', validId('bugId'), validId('testId'), validBody(updateTestCaseSchema), async (req, res) => {
+router.put('/:bugId/test/:testId', isLoggedIn(),hasPermission('canEditTestCase'), validId('bugId'), validId('testId'), validBody(updateTestCaseSchema), async (req, res) => {
   const bugId = req.bugId;
   const testId = req.testId;
   const updatedTestCase = req.body;
@@ -137,7 +137,7 @@ router.put('/:bugId/test/:testId', validId('bugId'), validId('testId'), validBod
 });
 
 // DELETE /api/bug/:bugId/test/:testId
-router.delete('/:bugId/test/:testId', isLoggedIn(), validId('bugId'), validId('testId'), async (req, res) => {
+router.delete('/:bugId/test/:testId', isLoggedIn(),hasPermission('canDeleteTestCase'), validId('bugId'), validId('testId'), async (req, res) => {
   const bugId = req.bugId;
   const testId = req.testId;
   debugTest(`Deleting test case ${testId} for bug ${bugId}`);

@@ -8,20 +8,25 @@ import bcrypt from 'bcrypt';
 import Joi from 'joi';
 
 import { nanoid } from 'nanoid';
-import { getUsers, newId, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser, calculateDateFromDaysAgo, saveEdit } from '../../database.js';
+import { getUsers, newId, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser, calculateDateFromDaysAgo, saveEdit, findRoleByName } from '../../database.js';
 import { validBody } from '../../middleware/validBody.js';
 import { validId } from '../../middleware/validId.js';
 import jwt from 'jsonwebtoken';
-import {isLoggedIn} from '@merlin4/express-auth';
+import {isLoggedIn, hasPermission, mergePermissions, fetchRoles} from '@merlin4/express-auth';
 router.use(express.urlencoded({extended:false}));
 
 async function issueAuthToken(user){
-  const payload = {_id: user._id, email: user.email, role: user.role};
-  const secret = process.env.JWT_SECRET;
-  const options = {expiresIn:'1h'};
+    const payload = {_id: user._id, email: user.email, role: user.role};
+    const secret = process.env.JWT_SECRET;
+    const options = {expiresIn:'1h'};
 
-  const authToken = jwt.sign(payload, secret, options);
-  return authToken;
+    const roles = await fetchRoles(user,role => findRoleByName(role));
+    
+    const permissions = mergePermissions(user,roles);
+    payload.permissions = permissions;
+
+    const authToken = jwt.sign(payload, secret, options);
+    return authToken;
 }
 
 function issueAuthCookie(res, authToken){
@@ -70,7 +75,7 @@ const updateUserSchema = Joi.object({
 // {"email":"grapport2@angelfire.com","password":"vS7*6`","fullName":"Guy Rapport","firstName":"Guy","lastName":"Rapport","role":"Geological Engineer", "_id":3},
 // {"email":"syeskin3@sina.com.cn","password":"jS8/o","fullName":"Siegfried Yeskin","firstName":"Siegfried","lastName":"Yeskin","role":"Senior Quality Engineer", "_id":4}];
 
-router.get('/list', isLoggedIn(), async (req,res) => {
+router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) => {
     debugUser('Getting all the users');
     const {
         keywords,
@@ -161,7 +166,7 @@ router.get('/me', isLoggedIn(), async (req, res) => {
 
 });
 
-router.get("/:userId", isLoggedIn(), validId('userId'), async (req,res) => {
+router.get("/:userId", isLoggedIn(), hasPermission('canViewData'), validId('userId'), async (req,res) => {
     //Reads the userId from the URL and stores in a variable
     const userId = req.userId;
     debugUser(userId);
@@ -298,7 +303,7 @@ router.put('/me', isLoggedIn(), validBody(updateMeSchema), async (req, res) => {
   }
 });
 
-router.put('/:userId', validId('userId'), validBody(updateUserSchema), async (req, res) => {
+router.put('/:userId',isLoggedIn(),hasPermission('canEditAnyUser'), validId('userId'), validBody(updateUserSchema), async (req, res) => {
   const userId = req.userId;
   const updatedUser = req.body;
 
@@ -369,7 +374,7 @@ router.put('/:userId', validId('userId'), validBody(updateUserSchema), async (re
   }
 });
 
-router.delete('/:userId', isLoggedIn(), validId('userId'), async (req, res) => {
+router.delete('/:userId', isLoggedIn(), hasPermission('canEditAnyUser'), validId('userId'), async (req, res) => {
   const userId = req.userId;
   const deletedUser = req.auth.fullName
   try {

@@ -11,7 +11,7 @@ import { getBugs, connect, getBugById, newBug, findUserByFullName, updateBug, cl
 import { validBody } from '../../middleware/validBody.js';
 import { validId } from '../../middleware/validId.js';
 import jwt from 'jsonwebtoken';
-import {isLoggedIn} from '@merlin4/express-auth';
+import {isLoggedIn,hasPermission} from '@merlin4/express-auth';
 
 router.use(express.urlencoded({extended:false}));
 
@@ -43,7 +43,7 @@ const closeBugSchema = Joi.object({
 // {"title":"Keeps crashing","description":"I can explore the site for 10 minutes but then the page just crashes","stepsToReproduce":"Login to account and browse for a few minutes. MAybe have other tabs open","_id":3},
 // {"title":"Error code 404","description":"Whenever I try to log in, an error 404 message opens saying that it cant find my account","stepsToReproduce":"Login to this persons account, see what is going on","_id":4}]
 
-router.get('/list', isLoggedIn(), async (req,res) => {
+router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) => {
     debugBug(`Getting all bugs, the query string is ${JSON.stringify(req.query)}`);
 
     let {
@@ -130,7 +130,7 @@ router.get('/list', isLoggedIn(), async (req,res) => {
     // }
 });
 
-router.get("/:bugId", isLoggedIn(), validId('bugId'), async (req,res) => {
+router.get("/:bugId", isLoggedIn(), hasPermission('canViewData'), validId('bugId'), async (req,res) => {
     //Reads the bugId from the URL and stores in a variable
     const bugId = req.bugId;
     debugBug(bugId);
@@ -144,7 +144,7 @@ router.get("/:bugId", isLoggedIn(), validId('bugId'), async (req,res) => {
     }
 });
 
-router.post('/new', isLoggedIn(), validBody(newBugSchema), async (req, res) => {
+router.post('/new', isLoggedIn(), hasPermission('canCreateBug'), validBody(newBugSchema), async (req, res) => {
     const newBugParams = req.body;
 
 try {
@@ -188,7 +188,7 @@ try {
 }
 });
 
-router.put('/:bugId', validId('bugId'), validBody(updateBugSchema), async (req, res) => {
+router.put('/:bugId', isLoggedIn(), hasPermission('canEditAnyBug', 'canEditIfAssignedTo', 'canEditMyBug'), validId('bugId'), validBody(updateBugSchema), async (req, res) => {
     //FIXME:  update existing user and send response as JSON
     const bugId = req.bugId;
     const updatedBug = req.body;
@@ -221,7 +221,8 @@ router.put('/:bugId', validId('bugId'), validBody(updateBugSchema), async (req, 
               userId: user._id
             };
 
-            const updateResult = await updateBug(bugId, bug);
+            const updateResult = await updateBug(bugId, bug, req);
+            debugBug(updateResult);
             if (updateResult.modifiedCount === 1) {
               const edit = {
                 timestamp: new Date().toLocaleString('en-US'),
@@ -246,7 +247,7 @@ router.put('/:bugId', validId('bugId'), validBody(updateBugSchema), async (req, 
 });
 
 // Define the route for classifying a bug
-router.put('/:bugId/classify', validId('bugId'), validBody(classifyBugSchema), async (req, res) => {
+router.put('/:bugId/classify',isLoggedIn(), hasPermission('canClassifyAnyBug'),validId('bugId'), validBody(classifyBugSchema), async (req, res) => {
     const bugId = req.bugId;
     const classifiedBug = req.body;
 
@@ -265,7 +266,7 @@ router.put('/:bugId/classify', validId('bugId'), validBody(classifyBugSchema), a
               fullName: user.fullName,
               userId: user._id
             };
-            const updateResult = await classifyBug(bugId, bug, user);
+            const updateResult = await classifyBug(bugId, bug, req);
             if (updateResult.modifiedCount === 1) {
               const edit = {
                 timestamp: new Date().toLocaleString('en-US'),
@@ -290,7 +291,7 @@ router.put('/:bugId/classify', validId('bugId'), validBody(classifyBugSchema), a
 });
 
 
-router.put('/:bugId/assign',validId('bugId'), validBody(assignBugSchema), async (req, res) => {
+router.put('/:bugId/assign', isLoggedIn(), hasPermission('canReassignAnyBug'), validId('bugId'), validBody(assignBugSchema), async (req, res) => {
     const bugId = req.bugId;
     const assignedBug = req.body; // Extract assignedToUserId from the request body
     try {
@@ -308,7 +309,7 @@ router.put('/:bugId/assign',validId('bugId'), validBody(assignBugSchema), async 
             fullName: user.fullName,
             userId: user._id
           };
-          const updateResult = await assignBugToUser(bugId, bug);
+          const updateResult = await assignBugToUser(bugId, bug, req);
           if (updateResult.modifiedCount === 1) {
             const edit = {
               timestamp: new Date().toLocaleString('en-US'),
@@ -333,7 +334,7 @@ router.put('/:bugId/assign',validId('bugId'), validBody(assignBugSchema), async 
 
 });
 
-router.put('/:bugId/close', isLoggedIn(), validId('bugId'), validBody(closeBugSchema), async (req, res) => {
+router.put('/:bugId/close', isLoggedIn(), hasPermission('canCloseAnyBug') ,validId('bugId'), validBody(closeBugSchema), async (req, res) => {
   const bugId = req.bugId;
   const closedBug = req.body.closed; // Declare 'closedBug' and assign it the value of req.closed
   try {
