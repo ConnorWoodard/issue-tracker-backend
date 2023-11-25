@@ -303,6 +303,11 @@ router.put('/me', isLoggedIn(), validBody(updateMeSchema), async (req, res) => {
   }
 });
 
+router.post('/logout', isLoggedIn(), async (req, res) => {
+  res.clearCookie('authToken');
+  res.status(200).json({message:'Logged Out'})
+})
+
 router.put('/:userId',isLoggedIn(),hasPermission('canEditAnyUser'), validId('userId'), validBody(updateUserSchema), async (req, res) => {
   const userId = req.userId;
   const updatedUser = req.body;

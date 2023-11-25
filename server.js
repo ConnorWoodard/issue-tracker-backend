@@ -12,6 +12,7 @@ import { CommentRouter } from './routes/api/comment.js';
 import { TestRouter } from './routes/api/test.js';
 import cookieParser from 'cookie-parser';
 import { authMiddleware } from '@merlin4/express-auth';
+import cors from 'cors';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +27,11 @@ app.use(authMiddleware(process.env.JWT_SECRET, 'authToken', {
     maxAge:1000*60*60
 }))
 
+app.use(express.json());
+app.use(cors({
+    origin:'http://localhost:5173',
+    credentials: true
+}));
 app.use(express.urlencoded({extended: true}));
 app.use('/api/user', UserRouter);
 app.use('/api/bug', BugRouter);

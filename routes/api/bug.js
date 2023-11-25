@@ -45,7 +45,7 @@ const closeBugSchema = Joi.object({
 
 router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) => {
     debugBug(`Getting all bugs, the query string is ${JSON.stringify(req.query)}`);
-
+    console.log(req);
     let {
       keywords,
       classification,
