@@ -53,7 +53,7 @@ router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) 
       maxAge,
       closed,
       sortBy,
-      pageSize = 5,
+      pageSize = 6,
       pageNumber = 1,
     } = req.query;
   

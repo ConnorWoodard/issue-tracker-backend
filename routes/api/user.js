@@ -75,84 +75,87 @@ const updateUserSchema = Joi.object({
 // {"email":"grapport2@angelfire.com","password":"vS7*6`","fullName":"Guy Rapport","firstName":"Guy","lastName":"Rapport","role":"Geological Engineer", "_id":3},
 // {"email":"syeskin3@sina.com.cn","password":"jS8/o","fullName":"Siegfried Yeskin","firstName":"Siegfried","lastName":"Yeskin","role":"Senior Quality Engineer", "_id":4}];
 
-router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) => {
-    debugUser('Getting all the users');
-    const {
-        keywords,
-        role,
-        minAge,
-        maxAge,
-        sortBy,
-        pageSize = 5,
-        pageNumber = 1,
-      } = req.query;
-    
-      const match = {};
-      let sort = { createdDate: -1 };
-    
-      // Build the filter and sorting based on query parameters.
-    
-      if (keywords) {
-        match.$text = { $search: keywords };
-      }
-    
-      if (role) {
-        match.role = role;
-      }
-    
-      if (minAge && maxAge) {
-        match.createdDate = {
-          $gte: calculateDateFromDaysAgo(maxAge),
-          $lt: calculateDateFromDaysAgo(minAge),
-        };
-      } else if (minAge) {
-        match.createdDate = { $lt: calculateDateFromDaysAgo(minAge) };
-      } else if (maxAge) {
-        match.createdDate = { $gte: calculateDateFromDaysAgo(maxAge) };
-      }
-    
-      // Handle sorting options.
-      switch (sortBy) {
-        case 'oldest':
-          sort = { createdDate: 1 };
-          break;
-        case 'givenName':
-          sort = { givenName: 1, familyName: 1, createdDate: 1 };
-          break;
-        case 'familyName':
-          sort = { familyName: 1, givenName: 1, createdDate: 1 };
-          break;
-        case 'role':
-          sort = { role: 1, givenName: 1, familyName: 1, createdDate: 1 };
-          break;
-        case 'newest':
-          sort = { createdDate: -1 };
-          break;
-      }
-    
-      try {
-        const db = await connect();
-        const pipeline = [
-          { $match: match },
-          { $sort: sort },
-          { $skip: (pageNumber - 1) * pageSize },
-          { $limit: parseInt(pageSize) },
-        ];
-    
-        const cursor = await db.collection('User').aggregate(pipeline);
-        const users = await cursor.toArray();
-        res.status(200).json(users);
-      } catch (err) {
-        res.status(500).json({ error: err.stack });
-      }
-    // try{
-    //     const db = await connect();
-    //     const users = await getUsers();
-    //     res.status(200).json(users);
-    // } catch(err) {
-    //     res.status(500).json({error: err});
-    // }
+router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req, res) => {
+  const {
+    keywords,
+    role,
+    minAge,
+    maxAge,
+    sortBy,
+    pageSize = 5,
+    pageNumber = 1,
+  } = req.query;
+
+  const match = {};
+  let sort = { createdDate: -1 };
+
+  // Build the filter and sorting based on query parameters.
+
+  if (keywords) {
+    match.$text = { $search: keywords };
+  }
+
+  if (role) {
+    match.role = role;
+  }
+
+  if (minAge && maxAge) {
+    match.createdDate = {
+      $gte: calculateDateFromDaysAgo(maxAge),
+      $lt: calculateDateFromDaysAgo(minAge),
+    };
+  } else if (minAge) {
+    match.createdDate = { $lt: calculateDateFromDaysAgo(minAge) };
+  } else if (maxAge) {
+    match.createdDate = { $gte: calculateDateFromDaysAgo(maxAge) };
+  }
+
+  // Handle sorting options.
+  switch (sortBy) {
+    case 'oldest':
+      sort = { createdDate: 1 };
+      break;
+    case 'givenName':
+      sort = { givenName: 1, familyName: 1, createdDate: 1 };
+      break;
+    case 'familyName':
+      sort = { familyName: 1, givenName: 1, createdDate: 1 };
+      break;
+    case 'role':
+      sort = { role: 1, givenName: 1, familyName: 1, createdDate: 1 };
+      break;
+    case 'newest':
+      sort = { createdDate: -1 };
+      break;
+  }
+
+  try {
+    const db = await connect();
+    const totalUsers = await db.collection('User').countDocuments(match);
+
+    const skip = (pageNumber - 1) * pageSize;
+
+    const pipeline = [
+      { $match: match },
+      { $sort: sort },
+      { $skip: skip },
+      { $limit: parseInt(pageSize) },
+    ];
+
+    const cursor = await db.collection('User').aggregate(pipeline);
+    const users = await cursor.toArray();
+
+    res.status(200).json({
+      users,
+      totalUsers,
+      currentPage: parseInt(pageNumber),
+      pageSize: parseInt(pageSize),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.stack });
+  }
 });
+
 
 router.get('/me', isLoggedIn(), async (req, res) => {
   const getLoggedInUser = await getUserById(newId(req.auth._id))
