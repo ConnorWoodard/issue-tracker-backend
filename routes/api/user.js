@@ -8,7 +8,7 @@ import bcrypt from 'bcrypt';
 import Joi from 'joi';
 
 import { nanoid } from 'nanoid';
-import { getUsers, newId, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser, calculateDateFromDaysAgo, saveEdit, findRoleByName } from '../../database.js';
+import { getUsers, newId, connect, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser, calculateDateFromDaysAgo, saveEdit, findRoleByName,getUserByEmail, getUserByResetToken, generateResetToken, updateUserWithResetToken, sendResetTokenEmail, updateUserPasswordByEmail  } from '../../database.js';
 import { validBody } from '../../middleware/validBody.js';
 import { validId } from '../../middleware/validId.js';
 import jwt from 'jsonwebtoken';
@@ -16,7 +16,7 @@ import {isLoggedIn, hasPermission, mergePermissions, fetchRoles} from '@merlin4/
 router.use(express.urlencoded({extended:false}));
 
 async function issueAuthToken(user){
-    const payload = {_id: user._id, email: user.email, role: user.role};
+    const payload = {_id: user._id, email: user.email, role: user.role, fullName: user.fullName};
     const secret = process.env.JWT_SECRET;
     const options = {expiresIn:'1h'};
 
@@ -51,6 +51,10 @@ const loginUserSchema = Joi.object({
     password: Joi.string().trim().min(8).max(50).required(),
 })
 
+const forgotPasswordSchema = Joi.object({
+  email: Joi.string().trim().email({ allowFullyQualified: true, minDomainSegments: 2 }).required(),
+});
+
 const updateMeSchema = Joi.object({
   password: Joi.string().trim().min(8).max(50),
   fullName: Joi.string().min(1).max(100),
@@ -68,6 +72,12 @@ const updateUserSchema = Joi.object({
       Joi.string().trim().valid('Developer', 'Quality Analyst', 'Business Analyst', 'Product Manager', 'Technical Manager')
     )
   });
+
+const resetPasswordSchema = Joi.object({
+    email: Joi.string().trim().email({ allowFullyQualified: true, minDomainSegments: 2 }).required(),
+    resetToken: Joi.string().required(),
+    newPassword: Joi.string().trim().min(8).max(50).required(),
+});
 //FIXME: use this array to store user data in for now
 //we will replace this with a database in a later assignment
 // const usersArray =[{"email":"tkettoe0@hc360.com","password":"gO4+K9#X","fullName":"Tawsha Kettoe","firstName":"Tawsha","lastName":"Kettoe","role":"Safety Technician II","_id":1},
@@ -76,7 +86,7 @@ const updateUserSchema = Joi.object({
 // {"email":"syeskin3@sina.com.cn","password":"jS8/o","fullName":"Siegfried Yeskin","firstName":"Siegfried","lastName":"Yeskin","role":"Senior Quality Engineer", "_id":4}];
 
 router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req, res) => {
-  const {
+  let {
     keywords,
     role,
     minAge,
@@ -87,10 +97,10 @@ router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req, res)
   } = req.query;
 
   const match = {};
-  let sort = { createdDate: -1 };
+  let sort = { createdAt: -1 };
 
   // Build the filter and sorting based on query parameters.
-
+try{
   if (keywords) {
     match.$text = { $search: keywords };
   }
@@ -100,41 +110,39 @@ router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req, res)
   }
 
   if (minAge && maxAge) {
-    match.createdDate = {
+    match.createAt = {
       $gte: calculateDateFromDaysAgo(maxAge),
       $lt: calculateDateFromDaysAgo(minAge),
     };
   } else if (minAge) {
-    match.createdDate = { $lt: calculateDateFromDaysAgo(minAge) };
+    match.createAt = { $lt: calculateDateFromDaysAgo(minAge) };
   } else if (maxAge) {
-    match.createdDate = { $gte: calculateDateFromDaysAgo(maxAge) };
+    match.createAt = { $gte: calculateDateFromDaysAgo(maxAge) };
   }
 
   // Handle sorting options.
   switch (sortBy) {
     case 'oldest':
-      sort = { createdDate: 1 };
+      sort = { createdAt: 1 };
       break;
     case 'givenName':
-      sort = { givenName: 1, familyName: 1, createdDate: 1 };
+      sort = { givenName: 1, familyName: 1, createAt: 1 };
       break;
     case 'familyName':
-      sort = { familyName: 1, givenName: 1, createdDate: 1 };
+      sort = { familyName: 1, givenName: 1, createAt: 1 };
       break;
     case 'role':
-      sort = { role: 1, givenName: 1, familyName: 1, createdDate: 1 };
+      sort = { role: 1, givenName: 1, familyName: 1, createAt: 1 };
       break;
     case 'newest':
-      sort = { createdDate: -1 };
+      sort = { createdAt: -1 };
       break;
   }
 
-  try {
     const db = await connect();
-    const totalUsers = await db.collection('User').countDocuments(match);
 
     const skip = (pageNumber - 1) * pageSize;
-
+    
     const pipeline = [
       { $match: match },
       { $sort: sort },
@@ -144,12 +152,11 @@ router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req, res)
 
     const cursor = await db.collection('User').aggregate(pipeline);
     const users = await cursor.toArray();
+    const totalCount = await db.collection('User').countDocuments(match);
 
     res.status(200).json({
       users,
-      totalUsers,
-      currentPage: parseInt(pageNumber),
-      pageSize: parseInt(pageSize),
+      totalCount
     });
   } catch (err) {
     res.status(500).json({ error: err.stack });
@@ -238,6 +245,67 @@ router.post('/login',validBody(loginUserSchema), async (req,res) => {
     }
 });
 
+router.post('/forgot-password', validBody(forgotPasswordSchema), async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await getUserByEmail(email);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const resetToken = generateResetToken();
+    const resetTokenExpires = new Date(Date.now() + 3600000); // Token expires in 1 hour
+
+    // Update user with reset token and audit trail information
+    user.resetToken = resetToken;
+    user.resetTokenExpires = resetTokenExpires;
+    user.lastUpdatedOn = new Date().toLocaleString('en-US');
+
+    await updateUser(user._id, user);
+
+    // Send reset token email
+    await sendResetTokenEmail(email, resetToken);
+
+    res.status(200).json({ message: 'Password reset email sent successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+router.post('/reset-password', validBody(resetPasswordSchema), async (req, res) => {
+  const { email, resetToken, newPassword } = req.body;
+
+  try {
+    const user = await getUserByEmail(email);
+
+    if (!user || user.email !== email || new Date() > new Date(user.resetTokenExpires)) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update user password and audit trail information
+    user.password = hashedPassword;
+    user.lastUpdatedOn = new Date().toLocaleString('en-US');
+
+    await updateUser(user._id, user);
+
+    // Optionally, clear or invalidate the reset token in the database
+
+    res.status(200).json({ message: 'Password reset successful' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+
 router.put('/me', isLoggedIn(), validBody(updateMeSchema), async (req, res) => {
   debugUser(`Self Service Route Updating a user ${JSON.stringify(req.auth)}`);
   const updatedUser = req.body;
@@ -314,6 +382,7 @@ router.post('/logout', isLoggedIn(), async (req, res) => {
 router.put('/:userId',isLoggedIn(),hasPermission('canEditAnyUser'), validId('userId'), validBody(updateUserSchema), async (req, res) => {
   const userId = req.userId;
   const updatedUser = req.body;
+  const loggedInUser = await getUserById(newId(req.auth._id));
 
   try {
     const user = await getUserById(userId);
@@ -351,11 +420,11 @@ router.put('/:userId',isLoggedIn(),hasPermission('canEditAnyUser'), validId('use
       user.lastUpdatedOn = new Date().toLocaleString('en-US');
       user.lastUpdatedBy = {
         _id: req.auth._id,
-        fullName: updatedUser.fullName,
+        fullName: loggedInUser.fullName,
         email: req.auth.email,
         role: req.auth.role,
       };
-
+      console.log(req.auth);
       const updateResult = await updateUser(userId, user);
 
       if (updateResult.modifiedCount === 1) {

@@ -87,7 +87,7 @@ router.put('/:bugId/test/new', isLoggedIn(),hasPermission('canAddTestCase'), val
               userId: user._id,
             },
         },
-        auth: { _id: req.auth._id, fullName: user.fullName, title: updatedBug.title },
+        auth: { _id: req.auth._id, fullName: user.fullName, title: dbResult.title },
     }
     await saveEdit(edit);
     res.status(200).json({ message: 'New test case added!', testId: testCase.testId });

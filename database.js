@@ -1,6 +1,8 @@
 import * as dotenv from 'dotenv';
 import { MongoClient, ObjectId } from 'mongodb';
 import debug from 'debug';
+import { nanoid } from 'nanoid';
+import nodemailer from 'nodemailer';
 const debugDb = debug('app:Database');
 
 /* Generate/Parse an ObjectId */
@@ -406,12 +408,76 @@ async function findRoleByName(name){
     const role = await db.collection("Role").findOne({name:name});
     return role;
 }
+
+async function getUserByEmail(email){
+    const db = await connect();
+    const user = await db.collection('User').findOne({email});
+    return user;
+}
+
+async function getUserByResetToken(resetToken) {
+    const db = await connect();
+    const user = await db.collection('User').findOne({ resetToken });
+    return user;
+}
+
+
+function generateResetToken() {
+    const tokenLength = 5; // Adjust the length of the reset token as needed
+    return nanoid(tokenLength);
+}
+
+async function updateUserWithResetToken(email, resetToken, resetTokenExpires) {
+    const user = await getUserByEmail(email);
+    if (user) {
+      user.resetToken = resetToken;
+      user.resetTokenExpires = resetTokenExpires;
+      await updateUser(user._id, user);
+    }
+  }
+
+async function updateUserPasswordByEmail(email, password) {
+    const user = await getUserByEmail(email);
+    if (user) {
+      user.password = password;
+      await updateUser(user._id, user);
+    }
+  }
+
+
+  async function sendResetTokenEmail(email, resetToken) {
+    const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
+    const resetLink = `${baseUrl}/reset-password/${resetToken}`;
+    const emailContent = `Click the following link to reset your password with this reset token ${resetToken}: ${resetLink}`;
+    
+    const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: 'issuetracker37@gmail.com',
+          pass: 'pgga qlrk xkgh jdjg',
+        },
+      });
+      try {
+        const info = await transporter.sendMail({
+          from: 'issuetracker37@gmail.com',
+          to: email,
+          subject: 'Issue Tracker Password Reset',
+          text: emailContent,
+        });
+      } catch (error) {
+        console.error('Error sending reset email:', error);
+        throw error; // Rethrow the error to be caught by the calling function
+      }
+    }
+
 // export functions
 export {newId, connect, ping, getUsers, getUserById, registerUser, checkEmailExists, loginUser, updateUser, deleteUser,
      getBugs, getBugById, newBug, findUserByFullName, updateBug, classifyBug, assignBugToUser, closeBug,
     getComments, getCommentById, addComment,
     getTestCases, getTestCaseById, addTestCase, updateTestCase, deleteTestCase,
-    calculateDateFromDaysAgo, saveEdit, findRoleByName};
+    calculateDateFromDaysAgo, saveEdit, findRoleByName, getUserByEmail, getUserByResetToken, generateResetToken, updateUserWithResetToken, sendResetTokenEmail, updateUserPasswordByEmail};
 
 // test the database connection
 //ping();

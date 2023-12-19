@@ -29,7 +29,7 @@ app.use(authMiddleware(process.env.JWT_SECRET, 'authToken', {
 
 app.use(express.json());
 app.use(cors({
-    origin:'http://localhost:5173',
+    origin:['http://localhost:5173','https://woodard-issuetracker-frontend.uc.r.appspot.com'],
     credentials: true
 }));
 app.use(express.urlencoded({extended: true}));

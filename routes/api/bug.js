@@ -45,7 +45,6 @@ const closeBugSchema = Joi.object({
 
 router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) => {
     debugBug(`Getting all bugs, the query string is ${JSON.stringify(req.query)}`);
-    console.log(req);
     let {
       keywords,
       classification,
@@ -60,6 +59,7 @@ router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) 
     const match = {}; // The match stage of the aggregation pipeline is used for filtering bugs.
     let sort = { creationDate: -1 }; // Default to sorting by newest.
   
+    try {
     // Build the filter and sorting based on query parameters.
     if (keywords) {
       match.$text = { $search: keywords };
@@ -89,6 +89,9 @@ router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) 
       case 'oldest':
         sort = { creationDate: 1 };
         break;
+      case 'newest':
+        sort = { creationDate: -1 };
+        break;
       case 'title':
         sort = { title: 1, creationDate: -1 };
         break;
@@ -105,7 +108,6 @@ router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) 
         break;
     }
   
-    try {
       const db = await connect();
       const pipeline = [
         { $match: match },
@@ -116,7 +118,8 @@ router.get('/list', isLoggedIn(), hasPermission('canViewData'), async (req,res) 
   
       const cursor = await db.collection('Bug').aggregate(pipeline);
       const bugs = await cursor.toArray();
-      res.status(200).json(bugs);
+      const totalCount = await db.collection("Bug").countDocuments(match);
+      res.status(200).json({ bugs, totalCount });
     } catch (err) {
       res.status(500).json({ error: err.stack });
     }
@@ -266,6 +269,7 @@ router.put('/:bugId/classify',isLoggedIn(), hasPermission('canClassifyAnyBug'),v
               fullName: user.fullName,
               userId: user._id
             };
+            console.log(req.body);
             const updateResult = await classifyBug(bugId, bug, req);
             if (updateResult.modifiedCount === 1) {
               const edit = {
