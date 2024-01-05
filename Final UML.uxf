@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<diagram program="umlet" version="15.1">
+  <zoom_level>10</zoom_level>
+  <element>
+    <id>UMLClass</id>
+    <coordinates>
+      <x>920</x>
+      <y>60</y>
+      <w>230</w>
+      <h>620</h>
+    </coordinates>
+    <panel_attributes>Bug
+--
+ -_id: ObjectId
+ -title: String
+ -description: String
+ -stepsToReproduce: String
+ -creationDate: String
+ -author: {
+    -fullName: string
+    -userId: ObjectId}
+ -lastUpdatedBy: {
+    -fullName: string
+    -userId: ObjectId}
+ -lastUpdatedOn: String
+ -closed: Boolean
+ -closedBy: {
+    -fullName: string
+    -userId: ObjectId}
+ -closedOn: String
+ -lastUpdated: String
+ -classification: String
+ -classifiedBy: {
+    -fullName: string
+    -userId: ObjectId}
+ -classifiedOn: String
+ -assignedBy: {
+    -fullName: string
+    -userId: ObjectId}
+ -assignedOn: String
+ -assignedToUserId: ObjectId
+ -comments:{
+    -commentId: ObjectId
+    -author: {
+       -fullName: string
+       -userId: ObjectId}
+    -text: String
+    -createdAt: String
+ 	}</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <id>UMLClass</id>
+    <coordinates>
+      <x>350</x>
+      <y>460</y>
+      <w>210</w>
+      <h>240</h>
+    </coordinates>
+    <panel_attributes>Edit
+--
+ -_id: ObjectId
+ -timestamp: String
+ -col: String
+ -op: String
+ -target: Object
+ -update: Object
+    -userId: ObjectId
+    -role:{
+       -name: string
+    -auth: {
+       -fullName: string
+       -userId: ObjectId}</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <id>UMLClass</id>
+    <coordinates>
+      <x>700</x>
+      <y>230</y>
+      <w>210</w>
+      <h>90</h>
+    </coordinates>
+    <panel_attributes>Role
+--
+ -_id: ObjectId
+ -name: String
+ -permissions: Object</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <id>UMLClass</id>
+    <coordinates>
+      <x>380</x>
+      <y>60</y>
+      <w>210</w>
+      <h>260</h>
+    </coordinates>
+    <panel_attributes>User
+--
+ -_id: ObjectId
+ -email: String
+ -password: String
+ -fullName: String
+ -givenName: String
+ -familyName: String
+ -role: List&lt;String&gt;
+ -createdAt: String
+ -lastUpdatedBy: {
+    -fullName: string
+    -userId: ObjectId}
+ -lastUpdatedOn: String
+</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <id>Relation</id>
+    <coordinates>
+      <x>550</x>
+      <y>530</y>
+      <w>390</w>
+      <h>40</h>
+    </coordinates>
+    <panel_attributes>lt=||-|&lt;
+One to Many</panel_attributes>
+    <additional_attributes>370.0;20.0;10.0;20.0</additional_attributes>
+  </element>
+  <element>
+    <id>Relation</id>
+    <coordinates>
+      <x>580</x>
+      <y>170</y>
+      <w>360</w>
+      <h>40</h>
+    </coordinates>
+    <panel_attributes>lt=||-|&lt;
+One to Many</panel_attributes>
+    <additional_attributes>10.0;20.0;340.0;20.0</additional_attributes>
+  </element>
+  <element>
+    <id>Relation</id>
+    <coordinates>
+      <x>520</x>
+      <y>310</y>
+      <w>110</w>
+      <h>160</h>
+    </coordinates>
+    <panel_attributes>lt=||-|&lt;
+One to Many</panel_attributes>
+    <additional_attributes>10.0;10.0;10.0;140.0</additional_attributes>
+  </element>
+  <element>
+    <id>Relation</id>
+    <coordinates>
+      <x>580</x>
+      <y>250</y>
+      <w>140</w>
+      <h>40</h>
+    </coordinates>
+    <panel_attributes>lt=&gt;|-||
+One to One</panel_attributes>
+    <additional_attributes>120.0;20.0;10.0;20.0</additional_attributes>
+  </element>
+</diagram>
